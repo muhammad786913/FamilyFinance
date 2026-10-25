@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --powder-blue: #d9e8f5;
+  --soft-blue: #afc8df;
+  --cyan: #00a6d6;
+  --bg: #f0f4f8;
+  --white: #ffffff;
+  --navy: #24364b;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: var(--navy);
+  background: var(--bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

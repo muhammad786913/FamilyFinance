@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F0F4F8"/>
+  <rect x="80" y="80" width="1040" height="470" rx="24" fill="#FFFFFF" stroke="#AFC8DF"/>
+  <rect x="80" y="80" width="16" height="470" rx="8" fill="#00A6D6"/>
+  <text x="140" y="200" font-family="Arial, sans-serif" font-size="56" fill="#24364B">FamilyFinance</text>
+  <text x="140" y="270" font-family="Arial, sans-serif" font-size="28" fill="#24364B">Plan household cash flow in PKR  bills, income dates, and realistic savings.</text>
+</svg>
