@@ -58,6 +58,7 @@ Demo account used for the live walkthrough:
 4. **Password hash leaking.** `passwordHash` is `select: false`; login explicitly selects it.
 5. **Recurring rows regenerated after delete.** Deleting the template prevents `ensureOccurrences` from recreating the series.
 6. **Validation gaps.** Strict calendar dates, positive amounts, duplicate one-time records → 409, invalid goal/event values → 400, DELETE with nothing found → 404.
+7. **Health check could lie.** `GET /api/health/ready` used to trust a cached Mongoose handle, so it still returned `db: "connected"` after MongoDB had stopped. `connectDb` now rebuilds a stale handle and the readiness route performs an actual `ping()` round-trip.
 
 ## Implemented features
 
