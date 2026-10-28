@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 const schema = new mongoose.Schema(
   {
     householdId: { type: mongoose.Schema.Types.ObjectId, ref: "Household", required: true, index: true },
+    isDemo: { type: Boolean, default: false },
     scheduleId: { type: String, default: null },
-    occurrenceKey: { type: String, default: null },
+    occurrenceKey: { type: String, default: undefined },
     name: { type: String, required: true, trim: true, maxlength: 120 },
     category: {
       type: String,
@@ -25,7 +26,12 @@ const schema = new mongoose.Schema(
 );
 
 schema.index({ householdId: 1, expectedDate: 1, status: 1 });
-schema.index({ householdId: 1, occurrenceKey: 1 }, { unique: true, sparse: true });
+// See models/Expense.js: templates omit occurrenceKey, so the unique index must
+// be partial rather than sparse for compound householdId + occurrenceKey keys.
+schema.index(
+  { householdId: 1, occurrenceKey: 1 },
+  { unique: true, partialFilterExpression: { occurrenceKey: { $type: "string" } } }
+);
 schema.index({ householdId: 1, category: 1 });
 
 export default mongoose.models.Income || mongoose.model("Income", schema);

@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 export const metadata = {
   title: "Privacy policy",
   description: "How FamilyFinance handles household financial information.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {

@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 const schema = new mongoose.Schema(
   {
     householdId: { type: mongoose.Schema.Types.ObjectId, ref: "Household", required: true, index: true },
+    isDemo: { type: Boolean, default: false },
     scheduleId: { type: String, default: null },
-    occurrenceKey: { type: String, default: null },
+    occurrenceKey: { type: String, default: undefined },
     name: { type: String, required: true, trim: true, maxlength: 120 },
     category: {
       type: String,
@@ -40,7 +41,14 @@ const schema = new mongoose.Schema(
 );
 
 schema.index({ householdId: 1, dueDate: 1, status: 1 });
-schema.index({ householdId: 1, occurrenceKey: 1 }, { unique: true, sparse: true });
+// Only materialised occurrences carry an occurrenceKey. A partial index (not a
+// sparse one) is required: householdId is always present, so a sparse compound
+// index would still index templates with a null key and allow only one template
+// per household.
+schema.index(
+  { householdId: 1, occurrenceKey: 1 },
+  { unique: true, partialFilterExpression: { occurrenceKey: { $type: "string" } } }
+);
 schema.index({ householdId: 1, category: 1, essential: 1 });
 
 export default mongoose.models.Expense || mongoose.model("Expense", schema);

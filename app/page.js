@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 
+export const metadata = {
+  title: "FamilyFinance — household cash-flow planner",
+  description:
+    "Plan household income, bills, and savings in PKR. See when cash may run short before the next payday.",
+  alternates: { canonical: "/" },
+};
+
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col bg-bg text-navy">

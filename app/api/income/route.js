@@ -14,6 +14,8 @@ import {
 import { INCOME_CATEGORIES, FREQUENCIES } from "@/lib/constants";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 import { occurrenceKey } from "@/lib/engine/recurring";
+import { ensureOccurrences, defaultPeriod, firstOccurrence, transactionFilter } from "@/lib/planContext";
+import Household from "@/models/Household";
 
 export async function GET(req) {
   try {
@@ -22,8 +24,13 @@ export async function GET(req) {
     const url = new URL(req.url);
     const { skip, limit, page } = paginate(url.searchParams);
     const status = url.searchParams.get("status");
-    const filter = { householdId: membership.householdId };
+    const category = url.searchParams.get("category");
+    const household = await Household.findById(membership.householdId).lean();
+    const period = defaultPeriod(household);
+    await ensureOccurrences(membership.householdId, period.start, period.end);
+    const filter = { householdId: membership.householdId, ...transactionFilter() };
     if (status) filter.status = status;
+    if (category) filter.category = category;
     const [items, total] = await Promise.all([
       Income.find(filter).sort({ expectedDate: 1 }).skip(skip).limit(limit).lean(),
       Income.countDocuments(filter),
@@ -48,7 +55,7 @@ export async function POST(req) {
       householdId: membership.householdId,
       name: String(body.name || "").trim().slice(0, 120),
       category: INCOME_CATEGORIES.includes(body.category) ? body.category : "other",
-      amountMinor: moneyField(body.amount, "amount"),
+      amountMinor: moneyField(body.amount, "amount", { positive: true }),
       expectedDate,
       frequency,
       estimated: body.estimated !== false,
@@ -57,8 +64,15 @@ export async function POST(req) {
     if (!doc.name) return json({ error: "Name is required." }, 400);
     if (frequency === "once") {
       doc.occurrenceKey = occurrenceKey(`once-${membership.householdId}-${doc.name}-${expectedDate}-${doc.amountMinor}`, expectedDate);
+      const duplicate = await Income.exists({ householdId: membership.householdId, occurrenceKey: doc.occurrenceKey });
+      if (duplicate) return json({ error: "This income entry already exists for that date." }, 409);
     }
     const item = await Income.create(doc);
+    if (frequency !== "once") {
+      await Income.create(firstOccurrence("income", item)).catch((err) => {
+        if (err.code !== 11000) throw err;
+      });
+    }
     await audit(membership, session.user.id, "create", "income", item._id);
     return json({ item }, 201);
   } catch (err) {
@@ -66,3 +80,4 @@ export async function POST(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

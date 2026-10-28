@@ -22,3 +22,4 @@ export async function GET() {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

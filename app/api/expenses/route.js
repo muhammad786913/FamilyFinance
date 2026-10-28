@@ -14,6 +14,8 @@ import {
 import { EXPENSE_CATEGORIES, FREQUENCIES } from "@/lib/constants";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 import { occurrenceKey } from "@/lib/engine/recurring";
+import { ensureOccurrences, defaultPeriod, firstOccurrence, transactionFilter } from "@/lib/planContext";
+import Household from "@/models/Household";
 
 export async function GET(req) {
   try {
@@ -21,7 +23,10 @@ export async function GET(req) {
     const membership = await requireMembership(session.user.id);
     const url = new URL(req.url);
     const { skip, limit, page } = paginate(url.searchParams);
-    const filter = { householdId: membership.householdId };
+    const household = await Household.findById(membership.householdId).lean();
+    const period = defaultPeriod(household);
+    await ensureOccurrences(membership.householdId, period.start, period.end);
+    const filter = { householdId: membership.householdId, ...transactionFilter() };
     const status = url.searchParams.get("status");
     const category = url.searchParams.get("category");
     if (status) filter.status = status;
@@ -50,7 +55,7 @@ export async function POST(req) {
       householdId: membership.householdId,
       name: String(body.name || "").trim().slice(0, 120),
       category: EXPENSE_CATEGORIES.includes(body.category) ? body.category : "other",
-      amountMinor: moneyField(body.amount, "amount"),
+      amountMinor: moneyField(body.amount, "amount", { positive: true }),
       dueDate,
       originalDueDate: dueDate,
       frequency,
@@ -61,8 +66,15 @@ export async function POST(req) {
     if (!doc.name) return json({ error: "Name is required." }, 400);
     if (frequency === "once") {
       doc.occurrenceKey = occurrenceKey(`once-e-${membership.householdId}-${doc.name}-${dueDate}-${doc.amountMinor}`, dueDate);
+      const duplicate = await Expense.exists({ householdId: membership.householdId, occurrenceKey: doc.occurrenceKey });
+      if (duplicate) return json({ error: "This bill already exists for that date." }, 409);
     }
     const item = await Expense.create(doc);
+    if (frequency !== "once") {
+      await Expense.create(firstOccurrence("expense", item)).catch((err) => {
+        if (err.code !== 11000) throw err;
+      });
+    }
     await audit(membership, session.user.id, "create", "expense", item._id);
     return json({ item }, 201);
   } catch (err) {
@@ -70,3 +82,4 @@ export async function POST(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

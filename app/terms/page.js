@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 export const metadata = {
   title: "Terms of service",
   description: "Terms for using FamilyFinance planning tools.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

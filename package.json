@@ -6,22 +6,25 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test": "node --test tests",
-    "indexes": "node --env-file=.env.local scripts/ensure-indexes.js"
+    "lint": "eslint . --ext .js,.jsx",
+    "test": "node --test",
+    "e2e": "node scripts/e2e.js",
+    "indexes": "node --env-file=.env.local scripts/ensure-indexes.js",
+    "icons": "node scripts/generate-icons.js",
+    "repair": "node --env-file=.env.local scripts/repair-recurrence.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "mongoose": "^8.8.0",
-    "next": "14.2.15",
+    "next": "^14.2.35",
     "next-auth": "^4.24.8",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^7.0.7",
     "react": "^18",
     "react-dom": "^18"
   },
   "devDependencies": {
     "eslint": "^8",
-    "eslint-config-next": "14.2.15",
+    "eslint-config-next": "^14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1"
   }

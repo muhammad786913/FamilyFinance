@@ -12,7 +12,7 @@ export async function PATCH(req, { params }) {
     if (!item) return json({ error: "Not found" }, 404);
     const body = await parseJson(req);
     if (body.name) item.name = String(body.name).slice(0, 120);
-    if (body.target != null) item.targetMinor = moneyField(body.target);
+    if (body.target != null) item.targetMinor = moneyField(body.target, "target", { positive: true });
     if (body.saved != null) item.savedMinor = moneyField(body.saved);
     if (body.targetDate) item.targetDate = ymd(body.targetDate);
     if (body.contribution != null) item.contributionMinor = moneyField(body.contribution);
@@ -30,7 +30,9 @@ export async function DELETE(_req, { params }) {
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    await Goal.deleteOne({ _id: params.id, householdId: membership.householdId });
+    if (!mongoose.isValidObjectId(params.id)) return json({ error: "Not found" }, 404);
+    const deleted = await Goal.deleteOne({ _id: params.id, householdId: membership.householdId });
+    if (!deleted.deletedCount) return json({ error: "Not found" }, 404);
     await audit(membership, session.user.id, "delete", "goal", params.id);
     return json({ ok: true });
   } catch (err) {

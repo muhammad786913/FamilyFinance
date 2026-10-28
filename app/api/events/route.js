@@ -11,8 +11,10 @@ import {
   moneyField,
   ymd,
   audit,
+  oneOf,
 } from "@/lib/api";
 import Household from "@/models/Household";
+import { EVENT_KINDS } from "@/lib/constants";
 
 export async function GET() {
   try {
@@ -42,12 +44,14 @@ export async function POST(req) {
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
     const body = await parseJson(req);
+    const name = String(body.name || "").trim().slice(0, 120);
+    if (!name) return json({ error: "Name is required." }, 400);
     const item = await SpecialEvent.create({
       householdId: membership.householdId,
-      name: String(body.name || "").trim().slice(0, 120),
-      kind: body.kind || "other",
-      amountMinor: moneyField(body.amount),
-      targetDate: ymd(body.targetDate),
+      name,
+      kind: oneOf(body.kind, EVENT_KINDS, "event type", "other"),
+      amountMinor: moneyField(body.amount, "amount", { positive: true }),
+      targetDate: ymd(body.targetDate, "target date"),
       priority: Math.min(9, Math.max(1, Number(body.priority) || 5)),
       notes: String(body.notes || "").slice(0, 500),
       includeInPlan: !!body.includeInPlan,
@@ -58,3 +62,4 @@ export async function POST(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

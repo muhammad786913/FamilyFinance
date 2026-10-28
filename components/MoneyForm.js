@@ -4,9 +4,13 @@ import { useState } from "react";
 import { Button, Field, Input, Select } from "./ui";
 import { api } from "@/lib/format";
 
-export function MoneyForm({ fields, submitLabel, onSubmit, extra }) {
+const BOOLEANS = ["essential", "estimated", "apply", "save", "useLocationEstimates", "extraEssential"];
+
+export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const value = (field) => (values && field.name in values ? values[field.name] : field.defaultValue);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -14,8 +18,8 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra }) {
     setError("");
     const form = new FormData(event.currentTarget);
     const body = Object.fromEntries(form.entries());
-    for (const key of ["essential", "estimated", "apply", "useLocationEstimates", "extraEssential"]) {
-      body[key] = form.get(key) === "on";
+    for (const key of BOOLEANS) {
+      if (form.has(key)) body[key] = form.get(key) === "on";
     }
     try {
       await onSubmit(body);
@@ -32,7 +36,7 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra }) {
       {fields.map((f) => (
         <Field key={f.name} label={f.label} htmlFor={f.name}>
           {f.type === "select" ? (
-            <Select id={f.name} name={f.name} defaultValue={f.defaultValue} required={f.required}>
+            <Select id={f.name} name={f.name} defaultValue={value(f)} required={f.required}>
               {f.options.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
@@ -40,9 +44,23 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra }) {
               ))}
             </Select>
           ) : f.type === "checkbox" ? (
-            <input id={f.name} name={f.name} type="checkbox" defaultChecked={f.defaultChecked} className="h-5 w-5 accent-cyan" />
+            <input
+              id={f.name}
+              name={f.name}
+              type="checkbox"
+              defaultChecked={values ? !!values[f.name] : f.defaultChecked}
+              className="h-5 w-5 accent-cyan"
+            />
           ) : (
-            <Input id={f.name} name={f.name} type={f.type || "text"} required={f.required} defaultValue={f.defaultValue} step={f.step} />
+            <Input
+              id={f.name}
+              name={f.name}
+              type={f.type || "text"}
+              required={f.required}
+              defaultValue={value(f)}
+              step={f.step}
+              min={f.step ? 0 : undefined}
+            />
           )}
         </Field>
       ))}

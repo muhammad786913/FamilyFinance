@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 export const metadata = {
   title: "FAQ",
   description: "Answers about PKR planning, expected income, and privacy.",
+  alternates: { canonical: "/faq" },
 };
 
 const faqs = [

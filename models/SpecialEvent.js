@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const schema = new mongoose.Schema(
   {
     householdId: { type: mongoose.Schema.Types.ObjectId, ref: "Household", required: true, index: true },
+    isDemo: { type: Boolean, default: false },
     name: { type: String, required: true, trim: true, maxlength: 120 },
     kind: {
       type: String,

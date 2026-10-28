@@ -64,3 +64,4 @@ export async function PUT(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

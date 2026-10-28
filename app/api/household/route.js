@@ -96,3 +96,4 @@ export async function DELETE() {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

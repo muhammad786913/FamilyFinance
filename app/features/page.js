@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 export const metadata = {
   title: "Features",
   description: "Income, bills, cash-flow forecasts, goals, events, what-if scenarios, and a minimum survival budget.",
+  alternates: { canonical: "/features" },
 };
 
 const items = [

@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 export const metadata = {
   title: "Help",
   description: "How to set up a household, add income and bills, and read cash-flow forecasts.",
+  alternates: { canonical: "/help" },
 };
 
 export default function HelpPage() {

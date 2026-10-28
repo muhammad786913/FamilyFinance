@@ -46,3 +46,4 @@ export async function GET(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

@@ -1,9 +1,7 @@
 import { runPlan } from "@/lib/engine/planningEngine";
-import { loadPlanInput, defaultPeriod } from "@/lib/planContext";
+import { loadPlanInput, defaultPeriod, survivalFor } from "@/lib/planContext";
 import { json, requireSession, requireMembership, handle, ymd } from "@/lib/api";
 import Household from "@/models/Household";
-import { survivalBudget } from "@/lib/engine/survivalBudget";
-import { todayInZone } from "@/lib/dates";
 
 export async function GET(req) {
   try {
@@ -16,23 +14,10 @@ export async function GET(req) {
     const to = url.searchParams.get("to") ? ymd(url.searchParams.get("to")) : fallback.end;
     const input = await loadPlanInput(membership.householdId, from, to);
     const plan = runPlan(input);
-    const survival = survivalBudget({
-      householdSize: Math.max(1, household.members?.length || 1),
-      location: household.city || "Other",
-      asOfDate: todayInZone(household.timezone),
-      housingMinor: household.survival?.housingMinor,
-      foodMinor: household.survival?.foodMinor,
-      utilitiesMinor: household.survival?.utilitiesMinor,
-      transportMinor: household.survival?.transportMinor,
-      medicalMinor: household.survival?.medicalMinor,
-      educationMinor: household.survival?.educationMinor,
-      otherEssentialMinor: household.survival?.otherEssentialMinor,
-      useLocationEstimates: household.survival?.useLocationEstimates,
-      confirmedIncomeMinor: plan.totals.confirmedIncomeMinor,
-      expectedIncomeMinor: plan.totals.expectedIncomeLeftMinor,
-    });
+    const survival = survivalFor(household, plan);
     return json({ plan, survival, period: { from, to } });
   } catch (err) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

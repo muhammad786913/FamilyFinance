@@ -22,6 +22,8 @@ const schema = new mongoose.Schema(
     savingsBalanceMinor: { type: Number, default: 0 },
     emergencyReserveMinor: { type: Number, default: 0 },
     setupComplete: { type: Boolean, default: false },
+    demoSeededAt: { type: Date, default: null },
+    demoSeed: { type: mongoose.Schema.Types.Mixed, default: null },
     members: { type: [memberSnap], default: [] },
     survival: {
       housingMinor: { type: Number, default: 0 },

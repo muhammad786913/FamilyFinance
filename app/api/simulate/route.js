@@ -25,32 +25,43 @@ export async function POST(req) {
     const household = await Household.findById(membership.householdId).lean();
     const period = defaultPeriod(household);
     const input = await loadPlanInput(membership.householdId, period.start, period.end);
-    const payload = {
-      delayIncomeId: body.delayIncomeId || null,
-      delayDays: Number(body.delayDays) || 0,
-      incomeAmountId: body.incomeAmountId || null,
-      incomeAmountMinor: body.incomeAmount != null ? moneyField(body.incomeAmount) : null,
-      expenseCategory: body.expenseCategory || null,
-      expenseMultiplier: body.expenseMultiplier ? Number(body.expenseMultiplier) : null,
-      extraExpense: body.extraAmount
-        ? {
-            id: "sim-extra",
-            name: body.extraName || "Unexpected expense",
-            amountMinor: moneyField(body.extraAmount),
-            dueDate: ymd(body.extraDate || period.start),
-            essential: !!body.extraEssential,
-            priority: 3,
-          }
-        : null,
-    };
+    let scenarioName = String(body.name || "Scenario").slice(0, 120);
+    let payload;
+    const existing = body.scenarioId
+      ? await Scenario.findOne({ _id: body.scenarioId, householdId: membership.householdId }).lean()
+      : null;
+    if (body.scenarioId && !existing) return json({ error: "Scenario not found" }, 404);
+    if (existing) {
+      payload = existing.payload;
+      scenarioName = existing.name;
+    } else {
+      payload = {
+        delayIncomeId: body.delayIncomeId || null,
+        delayDays: Number(body.delayDays) || 0,
+        incomeAmountId: body.incomeAmountId || null,
+        incomeAmountMinor: body.incomeAmount != null ? moneyField(body.incomeAmount) : null,
+        expenseCategory: body.expenseCategory || null,
+        expenseMultiplier: body.expenseMultiplier ? Number(body.expenseMultiplier) : null,
+        extraExpense: body.extraAmount
+          ? {
+              id: "sim-extra",
+              name: body.extraName || "Unexpected expense",
+              amountMinor: moneyField(body.extraAmount),
+              dueDate: ymd(body.extraDate || period.start),
+              essential: !!body.extraEssential,
+              priority: 3,
+            }
+          : null,
+      };
+    }
     const baseline = runPlan(input);
     const simulated = applyScenario(input, payload);
     const diff = comparePlans(baseline, simulated);
     let saved = null;
-    if (body.save) {
+    if (body.save && !existing) {
       saved = await Scenario.create({
         householdId: membership.householdId,
-        name: String(body.name || "Scenario").slice(0, 120),
+        name: scenarioName,
         payload,
       });
       await audit(membership, session.user.id, "create", "scenario", saved._id);
@@ -73,3 +84,4 @@ export async function POST(req) {
     return handle(err);
   }
 }
+export const dynamic = "force-dynamic";

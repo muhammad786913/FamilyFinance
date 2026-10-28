@@ -28,6 +28,9 @@ yarn-error.log*
 .env.local
 .env*.local
 
+# local diagnostics (E2E logs, one-off scripts)
+/tmp-*
+
 # vercel
 .vercel
 

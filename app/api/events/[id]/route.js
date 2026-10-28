@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import SpecialEvent from "@/models/SpecialEvent";
-import { json, requireSession, requireMembership, parseJson, assertWrite, handle, moneyField, ymd, audit } from "@/lib/api";
+import { json, requireSession, requireMembership, parseJson, assertWrite, handle, moneyField, ymd, audit, oneOf } from "@/lib/api";
+import { EVENT_KINDS } from "@/lib/constants";
 
 export async function PATCH(req, { params }) {
   try {
@@ -12,7 +13,8 @@ export async function PATCH(req, { params }) {
     if (!item) return json({ error: "Not found" }, 404);
     const body = await parseJson(req);
     if (body.name) item.name = String(body.name).slice(0, 120);
-    if (body.amount != null) item.amountMinor = moneyField(body.amount);
+    if (body.kind != null && body.kind !== "") item.kind = oneOf(body.kind, EVENT_KINDS, "event type");
+    if (body.amount != null) item.amountMinor = moneyField(body.amount, "amount", { positive: true });
     if (body.targetDate) item.targetDate = ymd(body.targetDate);
     if (body.includeInPlan != null) item.includeInPlan = !!body.includeInPlan;
     if (body.notes != null) item.notes = String(body.notes).slice(0, 500);
@@ -29,7 +31,9 @@ export async function DELETE(_req, { params }) {
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    await SpecialEvent.deleteOne({ _id: params.id, householdId: membership.householdId });
+    if (!mongoose.isValidObjectId(params.id)) return json({ error: "Not found" }, 404);
+    const deleted = await SpecialEvent.deleteOne({ _id: params.id, householdId: membership.householdId });
+    if (!deleted.deletedCount) return json({ error: "Not found" }, 404);
     await audit(membership, session.user.id, "delete", "event", params.id);
     return json({ ok: true });
   } catch (err) {
