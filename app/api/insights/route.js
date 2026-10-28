@@ -1,7 +1,7 @@
 import Household from "@/models/Household";
 import { runPlan } from "@/lib/engine/planningEngine";
 import { loadPlanInput, defaultPeriod, survivalFor } from "@/lib/planContext";
-import { addMonthsClamped, monthBounds, todayInZone } from "@/lib/dates";
+import { addDays, addMonthsClamped, monthBounds, todayInZone } from "@/lib/dates";
 import { healthScore, buildAgenda, runwayDays } from "@/lib/insights";
 import { json, requireSession, requireMembership, handle, ymd } from "@/lib/api";
 
@@ -20,7 +20,14 @@ export async function GET(req) {
     const plan = runPlan(input);
     const survival = survivalFor(household, plan);
     const health = healthScore({ plan, household });
-    const agenda = buildAgenda(plan, today, 14);
+    // The agenda is a rolling 14-day window, so it must be able to cross the
+    // planning-cycle boundary (e.g. the last days of October into November).
+    const horizon = addDays(today, 14);
+    const agendaPlan =
+      today >= from && horizon <= to
+        ? plan
+        : runPlan(await loadPlanInput(membership.householdId, today, horizon));
+    const agenda = buildAgenda(agendaPlan, today, 14);
     const runway = runwayDays(plan, today);
     const todayRow = plan.daily.find((d) => d.date === today) || plan.daily[0] || null;
 

@@ -414,6 +414,11 @@ function makeClient() {
   const cInsights = await C.call("/api/insights");
   check("demo data produces a plan", cInsights.data?.plan?.daily?.some((d) => (d.events || []).length > 0), "empty plan");
   check("demo data produces health + trend", typeof cInsights.data?.health?.score === "number" && cInsights.data?.trend?.length === 6, cInsights.data?.health);
+  check(
+    "agenda crosses the planning-cycle boundary",
+    (cInsights.data?.agenda || []).some((row) => row.date > cInsights.data?.period?.to),
+    cInsights.data?.agenda
+  );
 
   const cCsv = await C.call("/api/export/csv?type=expenses", { raw: true });
   const cCsvText = await cCsv.text();
