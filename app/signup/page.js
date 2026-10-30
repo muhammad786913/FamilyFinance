@@ -16,12 +16,12 @@ export default function SignupPage() {
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
-    const body = { name: form.get("name"), email: form.get("email"), password: form.get("password") };
+    const body = { name: form.get("name"), email: form.get("email"), password: form.get("password"), website: form.get("website") };
     try {
       await api("/api/auth/signup", { method: "POST", body });
       const res = await signIn("credentials", { email: body.email, password: body.password, redirect: false });
       if (!res?.ok) throw new Error("Account created. Please log in.");
-      window.location.href = "/onboarding";
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err.message);
     } finally {
@@ -44,6 +44,7 @@ export default function SignupPage() {
           <Field label="Password" htmlFor="password" hint="At least 8 characters">
             <Input id="password" name="password" type="password" minLength={8} autoComplete="new-password" required />
           </Field>
+          <input className="hidden" type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
           {error ? <p className="text-sm text-[#8B3A3A]">{error}</p> : null}
           <Button disabled={busy} type="submit">
             {busy ? "Creating…" : "Sign up"}

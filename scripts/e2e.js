@@ -7,6 +7,29 @@
  * Creates throwaway users with timestamped emails. Safe for a local/dev database.
  */
 const BASE = process.env.E2E_BASE || "http://localhost:3000";
+const http = require("node:http");
+
+// Each run gets its own last-hop proxy IP so repeated runs do not share rate-limit
+// buckets (the limiter keys on the final X-Forwarded-For hop).
+const E2E_CLIENT_IP =
+  process.env.E2E_CLIENT_IP || `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+
+/** Node's fetch refuses TRACE, so probe it with the raw client. */
+function rawStatus(method, path) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(BASE + path);
+    const req = http.request(
+      { hostname: url.hostname, port: url.port, path: url.pathname, method, timeout: 5000 },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 let pass = 0;
 let fail = 0;
@@ -61,7 +84,7 @@ function makeClient() {
       }
     },
     async call(path, { method = "GET", body, raw = false } = {}) {
-      const headers = { cookie: this.header() };
+      const headers = { cookie: this.header(), "x-forwarded-for": E2E_CLIENT_IP };
       let payload;
       if (body !== undefined) {
         headers["content-type"] = "application/json";
@@ -83,7 +106,7 @@ function makeClient() {
       const csrf = await this.call("/api/auth/csrf");
       const res = await fetch(`${BASE}/api/auth/callback/credentials`, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded", cookie: this.header() },
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie: this.header(), "x-forwarded-for": E2E_CLIENT_IP },
         body: new URLSearchParams({
           csrfToken: csrf.data.csrfToken,
           email,
@@ -97,7 +120,7 @@ function makeClient() {
       return res.status;
     },
     async signup(name, email, password) {
-      const res = await fetch(`${BASE}/api/auth/csrf`);
+      const res = await fetch(`${BASE}/api/auth/csrf`, { headers: { "x-forwarded-for": E2E_CLIENT_IP } });
       this.absorb(res);
       return this.call("/api/auth/signup", { method: "POST", body: { name, email, password } });
     },
@@ -149,7 +172,7 @@ function makeClient() {
   const wrongCsrf = await wrong.call("/api/auth/csrf");
   const wrongRes = await fetch(`${BASE}/api/auth/callback/credentials`, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: wrong.header() },
+    headers: { "content-type": "application/x-www-form-urlencoded", cookie: wrong.header(), "x-forwarded-for": E2E_CLIENT_IP },
     body: new URLSearchParams({
       csrfToken: wrongCsrf.data.csrfToken,
       email: aEmail,
@@ -172,7 +195,7 @@ function makeClient() {
       name: "Khan Household",
       country: "PK",
       currency: "PKR",
-      city: "Karachi",
+      city: "Lahore",
       timezone: "Asia/Karachi",
       members: [
         { label: "Ayesha", ageGroup: "adult" },
@@ -458,11 +481,15 @@ function makeClient() {
   check("header x-content-type-options", h.get("x-content-type-options") === "nosniff", h.get("x-content-type-options"));
   check("header referrer-policy", !!h.get("referrer-policy"), h.get("referrer-policy"));
   check("header permissions-policy", !!h.get("permissions-policy"), h.get("permissions-policy"));
+  const csp = h.get("content-security-policy") || "";
+  check("header content-security-policy", /default-src 'self'/.test(csp) && /frame-ancestors 'none'/.test(csp), csp);
+  check("header cross-origin-opener-policy", h.get("cross-origin-opener-policy") === "same-origin", h.get("cross-origin-opener-policy"));
+  check("header nosniff on API", (await fetch(`${BASE}/api/health`)).headers.get("x-content-type-options") === "nosniff", "missing");
 
   const anonDash = await fetch(`${BASE}/dashboard`, { redirect: "manual" });
   check("dashboard requires login", anonDash.status === 307 || anonDash.status === 302, anonDash.status);
   const anonDemo = await fetch(`${BASE}/api/demo`, { method: "POST" });
-  check("demo API requires auth", anonDemo.status === 401, anonDemo.status);
+  check("demo API rejects anonymous writes", anonDemo.status === 401 || anonDemo.status === 415, anonDemo.status);
   const anonCsv = await fetch(`${BASE}/api/export/csv?type=income`);
   check("CSV requires auth", anonCsv.status === 401, anonCsv.status);
 
@@ -495,6 +522,67 @@ function makeClient() {
   const rootHtml = await home.text();
   check("root page links the manifest", /rel="manifest"/.test(rootHtml), "no manifest link");
   check("root page sets a theme colour", /name="theme-color"/.test(rootHtml), "no theme-color");
+
+  // ---------- bot / abuse protection ----------
+  const scan = await fetch(`${BASE}/wp-admin/setup.php`, { redirect: "manual" });
+  check("scanner path returns 404", scan.status === 404, scan.status);
+  const envProbe = await fetch(`${BASE}/.env`, { redirect: "manual" });
+  check("env probe returns 404", envProbe.status === 404, envProbe.status);
+  const tr = await rawStatus("TRACE", "/dashboard");
+  check("TRACE method not served", tr >= 400, tr);
+
+  const cross = await fetch(`${BASE}/api/expenses`, {
+    method: "POST",
+    headers: { cookie: C.header(), "content-type": "application/json", origin: "http://evil.example" },
+    body: JSON.stringify({ name: "CSRF", amountMajor: 1000, dueDate: today, category: "other" }),
+  });
+  check("cross-origin write blocked", cross.status === 403, cross.status);
+
+  const wrongType = await fetch(`${BASE}/api/expenses`, {
+    method: "POST",
+    headers: { cookie: C.header(), "content-type": "text/plain" },
+    body: "name=x",
+  });
+  check("non-JSON write rejected", wrongType.status === 415, wrongType.status);
+
+  const huge = await fetch(`${BASE}/api/expenses`, {
+    method: "POST",
+    headers: { cookie: C.header(), "content-type": "application/json" },
+    body: JSON.stringify({ name: "Huge", notes: "x".repeat(80_000) }),
+  });
+  check("oversized body rejected", huge.status === 413, huge.status);
+
+  const honey = await C.call("/api/auth/signup", {
+    method: "POST",
+    body: { name: "Bot", email: `e2e-bot-${stamp}@example.com`, password, website: "http://spam.example" },
+  });
+  check("honeypot signup rejected", honey.status === 400, honey.data);
+
+  // Burst from a spoofed proxy IP (standard proxies append the real peer) so the
+  // rest of the suite keeps its own budget. Send it in batches: 650 simultaneous
+  // sockets can overflow a local listen backlog, which would abort the run before
+  // the limiter is even reached.
+  const burstHeaders = { "x-forwarded-for": "203.0.113.9" };
+  const burst = [];
+  for (let batch = 0; batch < 13; batch += 1) {
+    burst.push(
+      ...(await Promise.all(
+        Array.from({ length: 50 }, () =>
+          fetch(`${BASE}/api/health`, { headers: burstHeaders })
+            .then((r) => r.status)
+            .catch(() => "refused")
+        )
+      ))
+    );
+  }
+  const throttled = burst.filter((s) => s === 429).length;
+  check("rate limit throttles a burst", throttled > 0, {
+    throttled,
+    total: burst.length,
+    refused: burst.filter((s) => s === "refused").length,
+  });
+  const retry = await fetch(`${BASE}/api/health`, { headers: burstHeaders });
+  check("throttled response sends Retry-After", retry.status === 429 && Number(retry.headers.get("retry-after")) > 0, retry.status);
 
   // ---------- cleanup ----------
   const delScenario = await A.call(`/api/simulate/${scenarioId}`, { method: "DELETE" });

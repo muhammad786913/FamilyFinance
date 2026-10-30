@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
+import { HomeActions } from "@/components/HomeActions";
 
 export const metadata = {
   title: "FamilyFinance — household cash-flow planner",
@@ -19,13 +19,8 @@ export default function HomePage() {
             <p className="mt-4 text-lg text-navy/80">
               FamilyFinance helps Pakistani households track income dates, essential bills, and realistic savings — without treating expected salary as cash in hand.
             </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link className="rounded-lg bg-cyan px-5 py-3 font-semibold text-white" href="/signup">
-                Start planning
-              </Link>
-              <Link className="rounded-lg border border-soft bg-white px-5 py-3 font-semibold" href="/features">
-                View features
-              </Link>
+            <div className="mt-6">
+              <HomeActions />
             </div>
           </div>
           <div className="rounded-2xl border border-soft bg-white p-6 shadow-sm">

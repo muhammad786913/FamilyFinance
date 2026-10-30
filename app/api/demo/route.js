@@ -10,23 +10,34 @@ import { json, requireSession, requireMembership, assertWrite, handle, audit } f
 
 const INCOME = [
   ["Salary", "salary", 85000, 5],
-  ["Tuition income", "freelance", 15000, 15],
+  ["Spouse tuition income", "freelance", 18000, 15],
   ["Weekend shop work", "weekly_wage", 12000, 22],
+  ["Flat rent received", "business", 20000, 1],
+  ["Family contribution", "household_contribution", 15000, 10],
+  ["Online course sales", "freelance", 7000, 27],
 ];
 
+// name, category, amount, day-of-cycle, essential, priority, partially-paid amount
 const BILLS = [
   ["House rent", "rent_housing", 30000, 3, true, 1],
   ["Electricity bill", "electricity_gas_water", 8500, 8, true, 2],
   ["Sui gas bill", "electricity_gas_water", 2600, 9, true, 2],
+  ["Water tanker", "electricity_gas_water", 1800, 11, true, 2],
   ["Internet", "internet_phone", 3500, 10, false, 4],
+  ["Mobile balance", "internet_phone", 1200, 14, false, 5],
+  ["Streaming subscription", "entertainment", 900, 13, false, 6],
   ["Groceries (first half)", "groceries", 14000, 6, true, 1],
   ["Groceries (second half)", "groceries", 14000, 20, true, 1],
   ["School fee", "education", 9000, 7, true, 2],
-  ["Van fare", "transport", 6000, 12, true, 3],
+  ["School van", "transport", 6000, 12, true, 3],
+  ["Petrol", "transport", 7500, 16, true, 3],
   ["Medicine", "medical", 4000, 18, true, 2],
+  ["Hospital visit", "medical", 12000, 26, true, 1, 5000],
   ["Family loan instalment", "debt", 5000, 25, true, 2],
   ["Clothing", "clothing", 4000, 24, false, 5],
-  ["Mobile balance", "internet_phone", 1200, 14, false, 5],
+  ["Life insurance", "other", 4500, 17, true, 2],
+  ["Zakat and charity", "family_support", 3000, 28, false, 4],
+  ["Home maintenance", "rent_housing", 2500, 21, false, 4, 1000],
 ];
 
 function cycles(household) {
@@ -70,9 +81,11 @@ export async function POST() {
           payments: received ? [{ amountMinor: amount * 100, date, note: "Example payment" }] : [],
         });
       }
-      for (const [name, category, amount, day, essential, priority] of BILLS) {
+      for (const [name, category, amount, day, essential, priority, partPaid] of BILLS) {
         const date = addDays(cycle.start, day - 1);
-        const paid = date <= today;
+        const done = date <= today;
+        const paidAmount = !done ? 0 : partPaid ?? amount;
+        const status = !done ? "unpaid" : paidAmount >= amount ? "paid" : "partial";
         expenses.push({
           householdId: hid,
           isDemo: true,
@@ -80,16 +93,16 @@ export async function POST() {
           name,
           category,
           amountMinor: amount * 100,
-          paidMinor: paid ? amount * 100 : 0,
+          paidMinor: paidAmount * 100,
           dueDate: date,
           originalDueDate: date,
-          paidDate: paid ? date : null,
+          paidDate: done ? date : null,
           frequency: "once",
-          status: paid ? "paid" : "unpaid",
+          status,
           essential,
           priority,
           notes: "Example data",
-          payments: paid ? [{ amountMinor: amount * 100, date, note: "Example payment" }] : [],
+          payments: done && paidAmount > 0 ? [{ amountMinor: paidAmount * 100, date, note: "Example payment" }] : [],
         });
       }
     }
@@ -133,6 +146,28 @@ export async function POST() {
           contributionMinor: 5000 * 100,
           notes: "Example goal",
         },
+        {
+          householdId: hid,
+          isDemo: true,
+          name: "Hajj savings",
+          targetMinor: 900000 * 100,
+          savedMinor: 120000 * 100,
+          targetDate: addDays(today, 900),
+          priority: 3,
+          contributionMinor: 10000 * 100,
+          notes: "Example goal: long-term family target.",
+        },
+        {
+          householdId: hid,
+          isDemo: true,
+          name: "Laptop for the children",
+          targetMinor: 140000 * 100,
+          savedMinor: 30000 * 100,
+          targetDate: addDays(today, 150),
+          priority: 2,
+          contributionMinor: 4500 * 100,
+          notes: "Example goal",
+        },
       ]);
     }
 
@@ -168,6 +203,26 @@ export async function POST() {
           targetDate: addDays(today, 30),
           priority: 4,
           notes: "Example event",
+        },
+        {
+          householdId: hid,
+          isDemo: true,
+          name: "School trip",
+          kind: "other",
+          amountMinor: 15000 * 100,
+          targetDate: addDays(today, 18),
+          priority: 2,
+          notes: "Example event",
+        },
+        {
+          householdId: hid,
+          isDemo: true,
+          name: "Car repair",
+          kind: "other",
+          amountMinor: 35000 * 100,
+          targetDate: addDays(today, 12),
+          priority: 1,
+          notes: "Example event: a known expense in the next two weeks.",
         },
       ]);
     }

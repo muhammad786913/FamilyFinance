@@ -8,9 +8,13 @@ import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 export async function POST(req) {
   try {
-    const rl = rateLimit(`forgot:${clientIp(req)}`, { limit: 5, windowMs: 60_000 });
+    const rl = rateLimit(`forgot:${clientIp(req)}`, { limit: 5, windowMs: 60_000, banMs: 5 * 60_000 });
     if (!rl.ok) return json({ error: "Too many attempts. Try again shortly." }, 429);
     const body = await parseJson(req);
+    // Honeypot: answer exactly like a normal request, but do nothing.
+    if (String(body.website || "").trim()) {
+      return json({ ok: true, delivered: true, message: "If that account exists, a reset email was sent." });
+    }
     const email = normalizeEmail(body.email);
     const smtpReady = process.env.SMTP_HOST && process.env.SMTP_FROM;
     await connectDb();

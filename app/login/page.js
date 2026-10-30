@@ -18,6 +18,7 @@ export default function LoginPage() {
     const res = await signIn("credentials", {
       email: form.get("email"),
       password: form.get("password"),
+      website: form.get("website"),
       redirect: false,
     });
     setBusy(false);
@@ -40,6 +41,7 @@ export default function LoginPage() {
           <Field label="Password" htmlFor="password">
             <Input id="password" name="password" type="password" autoComplete="current-password" required />
           </Field>
+          <input className="hidden" type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
           {error ? <p className="text-sm text-[#8B3A3A]">{error}</p> : null}
           <Button disabled={busy} type="submit">
             {busy ? "Signing in…" : "Log in"}

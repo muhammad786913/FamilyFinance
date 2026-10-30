@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Field, Input, Select } from "@/components/ui";
 import { api } from "@/lib/format";
 
@@ -18,6 +18,27 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [members, setMembers] = useState([]);
   const [error, setError] = useState("");
+  const [name, setName] = useState("");
+  const [savedName, setSavedName] = useState("");
+
+  // Signup already creates a named household. Reuse it instead of asking again.
+  useEffect(() => {
+    let alive = true;
+    api("/api/household")
+      .then((data) => {
+        if (!alive) return;
+        if (data.household?.setupComplete) {
+          window.location.replace("/dashboard");
+          return;
+        }
+        setSavedName(data.household?.name || "");
+        setName(data.household?.name || "");
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function save(body, complete) {
     try {
@@ -45,8 +66,14 @@ export default function OnboardingPage() {
             save({ name: f.get("name") });
           }}
         >
-          <Field label="Household name" htmlFor="name">
-            <Input id="name" name="name" required />
+          <Field label="Household name" htmlFor="name" hint={savedName ? "Already created for you — rename it if you like." : undefined}>
+            <Input
+              id="name"
+              name="name"
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </Field>
           <Button type="submit">Continue</Button>
         </form>

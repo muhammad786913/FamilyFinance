@@ -42,13 +42,14 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | `npm run dev` | Development server |
 | `npm test` | Unit tests for money, dates, engine, insights, CSV, validation |
 | `npm run e2e` | End-to-end API/browser-flow checks against a running server |
+| `npm run verify` | Recomputes plan totals, daily balances, safe-to-spend, runway, health score, agenda, reports, and survival from a seeded month and compares them with the API |
 | `npm run lint` | ESLint |
 | `npm run build` | Production build |
 | `npm start` | Run production server |
 | `npm run indexes` | Ensure MongoDB indexes (needs `.env.local`) |
 | `npm run repair` | One-off repair for pre-`occurrenceKey` databases (safe to re-run) |
 
-For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth, isolation, CRUD, recurrence, payments, exports, PWA files, and security headers.
+For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth, isolation, CRUD, recurrence, payments, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
 
 ## Repeating records
 
@@ -92,12 +93,16 @@ Set `ALLOW_INDEXING=true` only on the public production host. Staging should sta
 
 ## Security
 
-- Passwords hashed with bcryptjs (cost 12)
-- JWT sessions, httpOnly cookies, `secure` in production
+See `SECURITY.md` for the full list and the deployment requirements.
+
+- Passwords hashed with bcryptjs (cost 12); a shared policy rejects weak, repeated, email-identical, and over-72-byte secrets; unknown accounts still run a dummy compare
+- JWT sessions, httpOnly cookies, `secure` automatic on HTTPS
 - Authorization on every financial API via household membership
-- Rate limits on auth and write endpoints (per process; use Redis at multi-instance scale)
-- Security headers in `next.config.mjs`
-- Export and owner-only household delete in Settings
+- Edge middleware: scanner paths → 404, non-standard methods rejected (TRACE is never served), cross-origin and non-JSON writes → 403/415
+- Per-identity sliding windows (auth 20/min, anonymous API 120/min, signed-in API 600/min, pages 240/min, 1500/min per-IP ceiling) with escalating bans; per-email login limit
+- Honeypot fields on signup, login, and password reset
+- 64 KB JSON body cap; CSP, HSTS (production), COOP, nosniff, frame-deny headers
+- Rate limits are per process; use Redis at multi-instance scale
 
 ## Deployment
 
@@ -127,7 +132,7 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Email verification is not implemented; password reset requires SMTP. Without SMTP the API says so instead of pretending to send mail.
-- Automated coverage is 39 unit tests plus a 106-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 49 unit tests plus a 119-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit` still reports advisories for the Next 14 line (fixed only in Next 16, a breaking migration) and for `nodemailer <= 10.1.3`. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what the reset flow needs.

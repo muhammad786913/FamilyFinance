@@ -129,15 +129,21 @@ function TrendChart({ trend }) {
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [household, setHousehold] = useState(null);
+  const [goals, setGoals] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [insights, home] = await Promise.all([api("/api/insights"), api("/api/household")]);
+      const [insights, home, goalList] = await Promise.all([
+        api("/api/insights"),
+        api("/api/household"),
+        api("/api/goals"),
+      ]);
       setData(insights);
       setHousehold(home.household);
+      setGoals(Array.isArray(goalList?.items) ? goalList.items : []);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -381,6 +387,39 @@ export default function DashboardPage() {
           </Link>
         </Card>
       </div>
+
+      <Card>
+        <h2 className="font-semibold">Savings goals</h2>
+        <p className="text-xs text-navy/60">How far each goal has come, based on what you have set aside.</p>
+        {goals.length ? (
+          <ul className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {goals.slice(0, 6).map((goal) => {
+              const pct = goal.targetMinor > 0 ? Math.min(100, Math.round((goal.savedMinor / goal.targetMinor) * 100)) : 0;
+              return (
+                <li key={goal._id}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="font-medium">{goal.name}</span>
+                    <span className="text-navy/70">{pct}%</span>
+                  </div>
+                  <div className="mt-1 h-2 rounded bg-powder" aria-hidden="true">
+                    <div className="h-2 rounded bg-cyan" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-navy/70">
+                    {formatMoney(goal.savedMinor)} of {formatMoney(goal.targetMinor)} · by {shortDate(goal.targetDate)}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="mt-3">
+            <Empty title="No savings goals yet">Add a goal to see progress here.</Empty>
+          </div>
+        )}
+        <Link className="mt-4 inline-block text-sm font-semibold text-cyan" href="/goals">
+          Manage savings goals →
+        </Link>
+      </Card>
 
       <Card>
         <h2 className="font-semibold">Last six planning cycles</h2>

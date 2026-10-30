@@ -77,12 +77,14 @@ Demo account used for the live walkthrough:
 - Mobile shell: desktop sidebar, hamburger drawer, 5-item bottom tab bar, safe areas
 - SEO: robots/sitemap gated by `ALLOW_INDEXING`, canonical/OG metadata, `noindex` on private pages
 - Security headers, per-endpoint auth/authorization, rate limits, health endpoints
+- Bot/abuse layer in `middleware.js` + `lib/botGuard.js`: scanner-path 404s, method allow-list, same-origin + JSON-only writes, per-IP budgets with escalating bans, honeypots on the public forms. See `SECURITY.md`.
 
 ## Test layout
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
-- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`
-- `scripts/e2e.js` covers signup/login/session, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, PWA assets, service-worker cache privacy
+- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`
+- `scripts/e2e.js` covers signup/login/session, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, service-worker cache privacy
+- `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget
 
 ## Known limitations (honest)
 

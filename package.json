@@ -9,6 +9,7 @@
     "lint": "eslint . --ext .js,.jsx",
     "test": "node --test",
     "e2e": "node scripts/e2e.js",
+    "verify": "node scripts/verify-calc.js",
     "indexes": "node --env-file=.env.local scripts/ensure-indexes.js",
     "icons": "node scripts/generate-icons.js",
     "repair": "node --env-file=.env.local scripts/repair-recurrence.js"

@@ -13,7 +13,10 @@ export default function ForgotPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
-      const data = await api("/api/auth/forgot-password", { method: "POST", body: { email: form.get("email") } });
+      const data = await api("/api/auth/forgot-password", {
+        method: "POST",
+        body: { email: form.get("email"), website: form.get("website") },
+      });
       setTone("info");
       setMessage(data.message || "If that account exists, a reset email was sent.");
     } catch (err) {
@@ -31,6 +34,7 @@ export default function ForgotPage() {
           <Field label="Email" htmlFor="email">
             <Input id="email" name="email" type="email" required />
           </Field>
+          <input className="hidden" type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
           <Button type="submit">Send reset link</Button>
         </form>
         {message ? (

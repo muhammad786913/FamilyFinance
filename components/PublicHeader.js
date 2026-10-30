@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { signOut, useSession } from "next-auth/react";
+import { useState } from "react";
 import { Logo } from "./Logo";
 
 const links = [
@@ -8,6 +12,10 @@ const links = [
 ];
 
 export function PublicHeader() {
+  const { status } = useSession();
+  const [busy, setBusy] = useState(false);
+  const signedIn = status === "authenticated";
+
   return (
     <header className="border-b border-soft bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
@@ -18,12 +26,35 @@ export function PublicHeader() {
               {label}
             </Link>
           ))}
-          <Link className="rounded-lg px-3 py-2 text-navy hover:bg-powder" href="/login">
-            Log in
-          </Link>
-          <Link className="rounded-lg bg-cyan px-3 py-2 font-semibold text-white" href="/signup">
-            Create account
-          </Link>
+          {status === "loading" ? (
+            <span className="h-9 w-24 animate-pulse rounded-lg bg-powder" aria-hidden="true" />
+          ) : signedIn ? (
+            <>
+              <Link className="rounded-lg bg-cyan px-3 py-2 font-semibold text-white" href="/dashboard">
+                Dashboard
+              </Link>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  await signOut({ callbackUrl: "/" });
+                }}
+                className="rounded-lg px-3 py-2 text-navy hover:bg-powder disabled:opacity-50"
+              >
+                {busy ? "Signing out…" : "Log out"}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link className="rounded-lg px-3 py-2 text-navy hover:bg-powder" href="/login">
+                Log in
+              </Link>
+              <Link className="rounded-lg bg-cyan px-3 py-2 font-semibold text-white" href="/signup">
+                Create account
+              </Link>
+            </>
+          )}
         </nav>
       </div>
     </header>

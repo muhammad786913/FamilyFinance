@@ -4,7 +4,8 @@ import { connectDb } from "@/lib/db";
 import User from "@/models/User";
 import PasswordReset from "@/models/PasswordReset";
 import { json, parseJson, handle } from "@/lib/api";
-import { rateLimit, clientIp } from "@/lib/rateLimit";
+import { rateLimit, clientIp, resetLimit } from "@/lib/rateLimit";
+import { passwordProblem } from "@/lib/passwordPolicy";
 
 export async function POST(req) {
   try {
@@ -13,7 +14,8 @@ export async function POST(req) {
     const body = await parseJson(req);
     const token = String(body.token || "");
     const password = String(body.password || "");
-    if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
+    const problem = passwordProblem(password);
+    if (problem) return json({ error: problem }, 400);
     if (!token) return json({ error: "Reset token is missing." }, 400);
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     await connectDb();
@@ -23,6 +25,12 @@ export async function POST(req) {
     await User.updateOne({ _id: row.userId }, { passwordHash });
     row.usedAt = new Date();
     await row.save();
+    // A password change should retire every other outstanding link for this user.
+    await PasswordReset.updateMany(
+      { userId: row.userId, usedAt: null, _id: { $ne: row._id } },
+      { $set: { usedAt: new Date() } }
+    );
+    resetLimit(`login:${String(body.email || "").trim().toLowerCase()}`);
     return json({ ok: true });
   } catch (err) {
     return handle(err);

@@ -106,7 +106,7 @@ export function AppShell({ children }) {
 
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-soft bg-white lg:flex">
         <div className="px-5 py-5">
-          <Logo />
+          <Logo href="/dashboard" />
         </div>
         <nav aria-label="App" className="flex-1 overflow-y-auto px-3 pb-4">
           {navGroups()}
@@ -137,7 +137,7 @@ export function AppShell({ children }) {
               <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
-          <Logo />
+          <Logo href="/dashboard" />
           <Link
             href="/settings"
             aria-label="Settings"
@@ -198,7 +198,7 @@ export function AppShell({ children }) {
             className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl"
           >
             <div className="flex items-center justify-between border-b border-soft px-4 py-3">
-              <Logo />
+              <Logo href="/dashboard" />
               <button
                 type="button"
                 ref={closeRef}
