@@ -8,6 +8,7 @@ import {
   assertWrite,
   handle,
   moneyField,
+  addMinorField,
   ymd,
   audit,
 } from "@/lib/api";
@@ -51,8 +52,9 @@ export async function PATCH(req, { params }) {
     if (body.pay != null) {
       const pay = moneyField(body.pay, "payment", { positive: true });
       const date = ymd(body.paidDate || item.dueDate, "paid date");
+      const paidTotal = addMinorField(item.paidMinor ?? 0, pay, "paid amount");
       item.payments.push({ amountMinor: pay, date, note: String(body.note || "") });
-      item.paidMinor += pay;
+      item.paidMinor = paidTotal;
       item.paidDate = date;
       if (item.paidMinor >= item.amountMinor) item.status = "paid";
       else item.status = "partial";

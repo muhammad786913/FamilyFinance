@@ -136,8 +136,17 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
             setPage(1);
             setPaying(null);
             setEditing(null);
-            await load({ page: 1, active: {} });
-            setNotice(`${saved?.item?.name || "Record"} saved. It is now the first row below.`);
+            const refreshed = await load({ page: 1, active: {} });
+            const recordName = saved?.item?.name || "Record";
+            setNotice(
+              refreshed
+                ? saved?.alreadyExists
+                  ? `${recordName} already existed, so it was not duplicated. It is shown below.`
+                  : `${recordName} saved. It is now the first row below.`
+                : saved?.alreadyExists
+                  ? `${recordName} already exists, but the list could not refresh. Reload this page to see it.`
+                  : `${recordName} was saved, but the list could not refresh. Reload this page to see it.`
+            );
           }}
         />
       </Card>

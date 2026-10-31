@@ -103,6 +103,13 @@ export default function OnboardingPage() {
   });
 
   function validate() {
+    if (step === 5 && String(data.cash).trim() !== "") {
+      const cash = Number(data.cash);
+      const cashMinor = Math.round(cash * 100);
+      if (!Number.isFinite(cash) || cash < 0 || !Number.isSafeInteger(cashMinor)) {
+        return "Enter a valid cash amount within the supported limit.";
+      }
+    }
     if (step === 0 && !String(data.name).trim()) return "Give your household a name (or keep the suggested one).";
     if (step === 1 && Number(data.income) > 0 && !data.payday) return "Choose the next payday.";
     if (step === 3 && data.hasDebt && !(Number(data.debt) > 0)) return "Enter the monthly debt instalment, or choose No debt.";
@@ -130,6 +137,11 @@ export default function OnboardingPage() {
   }
 
   async function finish() {
+    const cashProblem = validate();
+    if (cashProblem) {
+      setError(cashProblem);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -367,7 +379,7 @@ export default function OnboardingPage() {
             {preview.shortfall ? <p className="text-[#8B3A3A]">Your essentials and saving are larger than the income entered. You can go back and adjust.</p> : null}
           </div>
           <Field label="Money you have right now (PKR, optional)" htmlFor="cash" hint="Only confirmed cash — we never guess a balance.">
-            <Input id="cash" type="number" min="0" step="0.01" value={data.cash} onChange={(e) => patch({ cash: e.target.value })} />
+            <Input id="cash" type="number" min="0" max={Number.MAX_SAFE_INTEGER / 100} step="0.01" value={data.cash} onChange={(e) => patch({ cash: e.target.value })} />
           </Field>
           <p className="text-sm text-navy/70">Confirming adds these items to your plan. Everything stays editable.</p>
         </div>

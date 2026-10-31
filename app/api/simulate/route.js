@@ -3,7 +3,8 @@ import Expense from "@/models/Expense";
 import { applyScenario, comparePlans, runPlan } from "@/lib/engine/planningEngine";
 import { loadPlanInput, defaultPeriod } from "@/lib/planContext";
 import Household from "@/models/Household";
-import { json, requireSession, requireMembership, parseJson, assertWrite, handle, moneyField, ymd, audit } from "@/lib/api";
+import { json, requireSession, requireMembership, parseJson, assertWrite, handle, audit } from "@/lib/api";
+import scenarioPayload from "@/lib/scenarioPayload";
 
 export async function GET() {
   try {
@@ -35,24 +36,7 @@ export async function POST(req) {
       payload = existing.payload;
       scenarioName = existing.name;
     } else {
-      payload = {
-        delayIncomeId: body.delayIncomeId || null,
-        delayDays: Number(body.delayDays) || 0,
-        incomeAmountId: body.incomeAmountId || null,
-        incomeAmountMinor: body.incomeAmount != null ? moneyField(body.incomeAmount) : null,
-        expenseCategory: body.expenseCategory || null,
-        expenseMultiplier: body.expenseMultiplier ? Number(body.expenseMultiplier) : null,
-        extraExpense: body.extraAmount
-          ? {
-              id: "sim-extra",
-              name: body.extraName || "Unexpected expense",
-              amountMinor: moneyField(body.extraAmount),
-              dueDate: ymd(body.extraDate || period.start),
-              essential: !!body.extraEssential,
-              priority: 3,
-            }
-          : null,
-      };
+      payload = scenarioPayload.buildScenarioPayload(body, period);
     }
     const baseline = runPlan(input);
     const simulated = applyScenario(input, payload);

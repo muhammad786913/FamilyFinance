@@ -42,6 +42,7 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  let duplicateFilter = null;
   try {
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
@@ -66,8 +67,9 @@ export async function POST(req) {
     if (!doc.name) return json({ error: "Name is required." }, 400);
     if (frequency === "once") {
       doc.occurrenceKey = occurrenceKey(`once-e-${membership.householdId}-${doc.name}-${dueDate}-${doc.amountMinor}`, dueDate);
-      const duplicate = await Expense.exists({ householdId: membership.householdId, occurrenceKey: doc.occurrenceKey });
-      if (duplicate) return json({ error: "This bill already exists for that date." }, 409);
+      duplicateFilter = { householdId: membership.householdId, occurrenceKey: doc.occurrenceKey };
+      const duplicate = await Expense.findOne(duplicateFilter).lean();
+      if (duplicate) return json({ item: duplicate, alreadyExists: true });
     }
     const item = await Expense.create(doc);
     if (frequency !== "once") {
@@ -78,7 +80,13 @@ export async function POST(req) {
     await audit(membership, session.user.id, "create", "expense", item._id);
     return json({ item }, 201);
   } catch (err) {
-    if (err.code === 11000) return json({ error: "This bill already exists for that date." }, 409);
+    if (err.code === 11000) {
+      if (duplicateFilter) {
+        const existing = await Expense.findOne(duplicateFilter).lean();
+        if (existing) return json({ item: existing, alreadyExists: true });
+      }
+      return json({ error: "This bill already exists for that date." }, 409);
+    }
     return handle(err);
   }
 }

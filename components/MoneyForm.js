@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Button, Field, Input, Select } from "./ui";
 import { api } from "@/lib/format";
+import formPayloadModule from "@/lib/formPayload";
 
-const BOOLEANS = ["essential", "estimated", "apply", "save", "useLocationEstimates", "extraEssential"];
+const { formPayload } = formPayloadModule;
 
 export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
   const [error, setError] = useState("");
@@ -18,10 +19,7 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
     setError("");
     const formEl = event.currentTarget;
     const form = new FormData(formEl);
-    const body = Object.fromEntries(form.entries());
-    for (const key of BOOLEANS) {
-      if (form.has(key)) body[key] = form.get(key) === "on";
-    }
+    const body = formPayload(form, fields);
     try {
       await onSubmit(body);
       // React clears `currentTarget` once the event dispatch finishes, so keep

@@ -38,3 +38,22 @@ test("shortage explains essentials vs income", () => {
   assert.equal(result.status, "exceeds");
   assert.match(result.headline, /exceed/i);
 });
+
+
+test("survival budget rejects totals that exceed safe minor-unit calculations", () => {
+  assert.throws(
+    () => survivalBudget({
+      householdSize: 1, location: "Other", asOfDate: "2026-10-01",
+      housingMinor: Number.MAX_SAFE_INTEGER, foodMinor: 1,
+      confirmedIncomeMinor: 0, expectedIncomeMinor: 0,
+    }),
+    /Monthly essentials total exceeds/
+  );
+  assert.throws(
+    () => survivalBudget({
+      householdSize: 1, location: "Other", asOfDate: "2026-10-01",
+      housingMinor: 0, confirmedIncomeMinor: Number.MAX_SAFE_INTEGER, expectedIncomeMinor: 1,
+    }),
+    /Projected income total exceeds/
+  );
+});

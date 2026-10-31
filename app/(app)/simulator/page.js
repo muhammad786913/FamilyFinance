@@ -32,6 +32,7 @@ export default function SimulatorPage() {
       await loadScenarios();
     } catch (err) {
       setError(err.message);
+      throw err;
     } finally {
       setBusy(false);
     }

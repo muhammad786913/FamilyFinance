@@ -10,3 +10,11 @@ test("converts major units with half-up rounding", () => {
 test("adds minor units without float drift", () => {
   assert.equal(addMinor(10, 20, 30), 60);
 });
+
+
+test("rejects amounts that cannot be represented safely in paisa", () => {
+  assert.equal(majorToMinor(Number.MAX_SAFE_INTEGER / 100), Number.MAX_SAFE_INTEGER);
+  assert.throws(() => majorToMinor(Number.MAX_SAFE_INTEGER / 100 + 1), /supported limit/);
+  assert.throws(() => minorToMajor(Number.MAX_SAFE_INTEGER + 1), /Invalid minor amount/);
+  assert.throws(() => addMinor(Number.MAX_SAFE_INTEGER, 1), /supported limit/);
+});

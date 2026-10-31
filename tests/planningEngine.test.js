@@ -122,3 +122,49 @@ test("month-end last day is included", () => {
   const plan = runPlan({ ...base, incomes: [], expenses: [] });
   assert.equal(plan.daily[plan.daily.length - 1].date, "2026-10-31");
 });
+
+
+test("scenario can set a category expense multiplier to zero", () => {
+  const input = {
+    ...base,
+    expenses: [
+      { id: "g1", name: "Groceries", category: "groceries", amountMinor: 25000, dueDate: "2026-10-10", essential: true, paidMinor: 0, status: "unpaid" },
+    ],
+    incomes: [],
+  };
+  const baseline = runPlan(input);
+  const simulated = applyScenario(input, { expenseCategory: "groceries", expenseMultiplier: 0 });
+  assert.equal(simulated.totals.endingProjectedMinor - baseline.totals.endingProjectedMinor, 25000);
+});
+
+test("maximum supported starting balance calculates exactly", () => {
+  const maxMinor = Number.MAX_SAFE_INTEGER;
+  const plan = runPlan({ ...base, startingBalanceMinor: maxMinor, emergencyReserveMinor: 0, incomes: [], expenses: [] });
+  assert.equal(plan.totals.endingProjectedMinor, maxMinor);
+});
+
+test("engine rejects totals that overflow safe paisa calculations", () => {
+  assert.throws(
+    () => runPlan({
+      ...base,
+      startingBalanceMinor: Number.MAX_SAFE_INTEGER,
+      emergencyReserveMinor: 0,
+      incomes: [{ id: "i", name: "Income", amountMinor: 1, receivedMinor: 0, expectedDate: "2026-10-02", status: "expected" }],
+      expenses: [],
+    }),
+    /Projected balance exceeds/
+  );
+});
+
+
+test("scenario delay rejects dates outside the supported calendar range", () => {
+  const input = {
+    ...base,
+    incomes: [{ id: "i", name: "Salary", amountMinor: 1000, receivedMinor: 0, expectedDate: "2026-10-10", status: "expected" }],
+    expenses: [],
+  };
+  assert.throws(
+    () => applyScenario(input, { delayIncomeId: "i", delayDays: Number.MAX_SAFE_INTEGER }),
+    /supported date range/
+  );
+});
