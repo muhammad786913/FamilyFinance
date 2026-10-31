@@ -250,9 +250,11 @@ export default function DashboardPage() {
             <Button type="button" onClick={seed} disabled={busy}>
               {busy ? "Adding…" : "Load example month"}
             </Button>
-            <Link className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold" href="/onboarding">
-              Finish setup instead
-            </Link>
+            {!household?.setupComplete ? (
+              <Link className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold" href="/onboarding">
+                Finish setup instead
+              </Link>
+            ) : null}
           </div>
         </Card>
       ) : null}

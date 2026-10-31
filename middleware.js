@@ -40,6 +40,10 @@ export default async function middleware(req, event) {
   // 1. Scanner/noise paths never reach the application.
   if (isBlockedPath(pathname)) return deny(404);
 
+  // 1b. The app ships no next/image usage, so the optimizer is pure attack
+  //     surface (it has carried unauthenticated RCE advisories). Keep it off.
+  if (pathname.startsWith("/_next/image")) return deny(404);
+
   // 2. Reject exotic methods outright (TRACE/TRACK/CONNECT...).
   if (!isAllowedMethod(method)) return deny(405, { Allow: "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS" });
 
@@ -100,6 +104,6 @@ export default async function middleware(req, event) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp|txt|xml|woff2?)$).*)",
+    "/((?!_next/static|favicon.ico|icons/|sw.js|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp|txt|xml|woff2?)$).*)",
   ],
 };

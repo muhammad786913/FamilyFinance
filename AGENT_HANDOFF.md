@@ -4,22 +4,23 @@
 
 FamilyFinance is a full-stack household cash-flow planner for Pakistani families (default PKR). It stores real user records, authenticates accounts, and forecasts cash flow with deterministic JavaScript — no AI API and no fabricated results.
 
-## Verified state (2026-10-28)
+## Verified state (2026-10-31)
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 39/39 pass |
-| `npm.cmd run e2e` | 106/106 pass against a running production server |
+| `npm.cmd test` | 54/54 pass |
+| `npm.cmd run e2e` | 130/130 pass against a running production server |
+| `npm.cmd run verify` | 301/301 assertions pass |
 | `npm.cmd run lint` | clean |
-| `npm.cmd run build` | succeeds (Next 14.2.35) |
-| Live smoke test | signup, login, onboarding, dashboard, API flows, PWA files verified |
+| `npm.cmd run build` | succeeds (Next 15.5.28) |
+| Live smoke test | signup, "check your email" state, unverified login block, verified login, six-step onboarding, dashboard, income create/duplicate/refresh verified in a browser |
 | Node / npm | v24.19.0 / 11.17.0 |
 | MongoDB | 9.0, local `mongodb://127.0.0.1:27017/familyfinance` |
 
 ## Stack
 
-- Next.js 14.2.35 App Router, JavaScript (not TypeScript)
-- React 18.3.1, Tailwind 3
+- Next.js 15.5.28 App Router, JavaScript (not TypeScript)
+- React 19.3.1, Tailwind 3
 - MongoDB + Mongoose 8.x
 - NextAuth 4.24.15 Credentials, bcryptjs 2.4.3 (cost 12)
 - nodemailer 7.x (peer-required by next-auth)
@@ -63,8 +64,10 @@ Demo account used for the live walkthrough:
 ## Implemented features
 
 - Auth: signup, login, logout, password reset (only sends mail when SMTP is configured), rate-limited credentials login
-- Household onboarding/settings: members, city, timezone, planning start day, opening/savings/emergency balances
-- Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export
+- Email verification: hashed one-time tokens (24h), server-side unverified-login block, rate-limited resend, honest delivery-failure reporting; `npm run verify-backfill` for pre-existing accounts
+- Household onboarding (`/onboarding`, six short steps): income amount/frequency/payday, household size, essentials with conditional school fees, optional debt, optional savings goal, and a monthly preview before confirmation. Signup data is reused, not re-asked.
+- Household settings: members, city, timezone, planning start day, opening/savings/emergency balances
+- Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export; lists are newest-first and a saved row appears immediately (filters/page reset)
 - Repeating income/bills with schedule propagation and series deletion
 - Dashboard: health score ring, 14-day agenda, cash timeline, category split, six-cycle trend, runway, demo-data CTA
 - Planning engine: daily/weekly/monthly cash flow, shortages, missed essentials, safe-to-spend suggestions, explanations
@@ -82,17 +85,17 @@ Demo account used for the live walkthrough:
 ## Test layout
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
-- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`
-- `scripts/e2e.js` covers signup/login/session, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, service-worker cache privacy
+- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`
+- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, unverified-login blocking, verification token lifecycle (unknown/expired/valid/reuse), onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, service-worker cache privacy
 - `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget
 
 ## Known limitations (honest)
 
 - Rate limits and plan cache are per-process. Use Redis for multiple instances.
 - No shared-household invite UI yet (membership roles exist).
-- `npm audit` reports Next 14 advisories (only fixed in Next 16, a breaking migration) and nodemailer ≤10.1.3 advisories blocked by `next-auth` peer `^7.0.7`.
-- Email verification is not implemented; password reset needs SMTP.
-- Multi-document writes (household delete, occurrence generation) are not transactional; a crash can leave partial state.
+- `npm audit --omit=dev` reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades.
+- Email delivery (verification and reset) requires SMTP; without it the UI says delivery is not configured. No 2FA yet.
+- Onboarding creates the household, income, bills, and goal with separate writes; if one fails, re-confirming skips already-created items, but a crash between writes can leave a partial plan.
 - The service worker does not cache authenticated data, so no offline record access.
 - E2E tests the HTTP API and rendered HTML; interactive browser controls still need manual spot checks.
 

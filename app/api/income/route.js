@@ -32,7 +32,7 @@ export async function GET(req) {
     if (status) filter.status = status;
     if (category) filter.category = category;
     const [items, total] = await Promise.all([
-      Income.find(filter).sort({ expectedDate: 1 }).skip(skip).limit(limit).lean(),
+      Income.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
       Income.countDocuments(filter),
     ]);
     return json({ items, total, page, limit });

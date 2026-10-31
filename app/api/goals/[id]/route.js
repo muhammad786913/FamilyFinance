@@ -4,11 +4,12 @@ import { json, requireSession, requireMembership, parseJson, assertWrite, handle
 
 export async function PATCH(req, { params }) {
   try {
+    const { id } = await params;
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    if (!mongoose.isValidObjectId(params.id)) return json({ error: "Not found" }, 404);
-    const item = await Goal.findOne({ _id: params.id, householdId: membership.householdId });
+    if (!mongoose.isValidObjectId(id)) return json({ error: "Not found" }, 404);
+    const item = await Goal.findOne({ _id: id, householdId: membership.householdId });
     if (!item) return json({ error: "Not found" }, 404);
     const body = await parseJson(req);
     if (body.name) item.name = String(body.name).slice(0, 120);
@@ -27,13 +28,14 @@ export async function PATCH(req, { params }) {
 
 export async function DELETE(_req, { params }) {
   try {
+    const { id } = await params;
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    if (!mongoose.isValidObjectId(params.id)) return json({ error: "Not found" }, 404);
-    const deleted = await Goal.deleteOne({ _id: params.id, householdId: membership.householdId });
+    if (!mongoose.isValidObjectId(id)) return json({ error: "Not found" }, 404);
+    const deleted = await Goal.deleteOne({ _id: id, householdId: membership.householdId });
     if (!deleted.deletedCount) return json({ error: "Not found" }, 404);
-    await audit(membership, session.user.id, "delete", "goal", params.id);
+    await audit(membership, session.user.id, "delete", "goal", id);
     return json({ ok: true });
   } catch (err) {
     return handle(err);

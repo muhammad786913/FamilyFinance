@@ -12,6 +12,24 @@
  * Exits non-zero if any expected value differs from the API's actual value.
  */
 const BASE = process.env.VERIFY_BASE || "http://localhost:3000";
+const fs = require("node:fs");
+const mongoose = require("mongoose");
+
+// Verification blocks login until the emailed link is opened. This audit account
+// is throwaway, so the harness marks it verified directly (same local DB).
+async function markVerified(email) {
+  let uri = process.env.MONGODB_URI;
+  if (!uri) {
+    try {
+      const env = fs.readFileSync(".env.local", "utf8");
+      const line = env.split(/\r?\n/).find((row) => row.startsWith("MONGODB_URI="));
+      if (line) uri = line.slice("MONGODB_URI=".length).trim();
+    } catch {}
+  }
+  const conn = await mongoose.createConnection(uri || "mongodb://127.0.0.1:27017/familyfinance").asPromise();
+  await conn.collection("users").updateOne({ email }, { $set: { emailVerifiedAt: new Date() } });
+  await conn.close();
+}
 
 let pass = 0;
 let fail = 0;
@@ -281,6 +299,7 @@ function bandFor(score) {
     console.error("Could not create the audit account:", signup.status, signup.data);
     process.exit(1);
   }
+  await markVerified(email);
   eq("audit login", await A.login(email, password), 200);
   const hh = await A.call("/api/household", {
     method: "PATCH",

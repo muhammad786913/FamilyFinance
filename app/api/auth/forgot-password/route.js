@@ -5,6 +5,7 @@ import PasswordReset from "@/models/PasswordReset";
 import { json, parseJson, handle } from "@/lib/api";
 import { normalizeEmail } from "@/lib/authOptions";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
+import { smtpConfigured, sendMail } from "@/lib/mail";
 
 export async function POST(req) {
   try {
@@ -16,7 +17,7 @@ export async function POST(req) {
       return json({ ok: true, delivered: true, message: "If that account exists, a reset email was sent." });
     }
     const email = normalizeEmail(body.email);
-    const smtpReady = process.env.SMTP_HOST && process.env.SMTP_FROM;
+    const smtpReady = smtpConfigured();
     await connectDb();
     const user = email ? await User.findOne({ email }).lean() : null;
     if (!smtpReady) {
@@ -34,21 +35,12 @@ export async function POST(req) {
         tokenHash,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       });
-      const { default: nodemailer } = await import("nodemailer");
-      const transport = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: process.env.SMTP_PORT === "465",
-        auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-      });
       const base = process.env.APP_URL || process.env.NEXTAUTH_URL || "";
-      await transport.sendMail({
-        from: process.env.SMTP_FROM,
+      await sendMail({
         to: user.email,
         subject: "FamilyFinance password reset",
         text: `Reset your password: ${base}/reset-password?token=${token}`,
-      });
-    }
+      });    }
     return json({
       ok: true,
       delivered: true,

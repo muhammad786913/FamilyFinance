@@ -1,6 +1,5 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState } from "react";
 import { Button, Card, Field, Input } from "@/components/ui";
@@ -10,6 +9,7 @@ import { api } from "@/lib/format";
 export default function SignupPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -18,10 +18,8 @@ export default function SignupPage() {
     const form = new FormData(event.currentTarget);
     const body = { name: form.get("name"), email: form.get("email"), password: form.get("password"), website: form.get("website") };
     try {
-      await api("/api/auth/signup", { method: "POST", body });
-      const res = await signIn("credentials", { email: body.email, password: body.password, redirect: false });
-      if (!res?.ok) throw new Error("Account created. Please log in.");
-      window.location.href = "/dashboard";
+      const result = await api("/api/auth/signup", { method: "POST", body });
+      setDone({ ...result, email: body.email });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -33,6 +31,24 @@ export default function SignupPage() {
     <main className="mx-auto grid min-h-screen max-w-md content-center px-4">
       <Logo className="mb-6 justify-center" />
       <Card>
+        {done ? (
+          <div className="grid gap-3">
+            <h1 className="text-2xl font-semibold">Check your email</h1>
+            <p className="text-sm">{done.message}</p>
+            {done.delivered === false ? (
+              <p className="text-sm text-[#8A6A1F]">
+                The account exists, but the link could not be delivered yet. Ask the administrator to configure SMTP, then resend.
+              </p>
+            ) : null}
+            <Link
+              className="font-semibold text-cyan"
+              href={`/verify-email?email=${encodeURIComponent(done.email)}`}
+            >
+              Open the verification page / resend the link
+            </Link>
+          </div>
+        ) : (
+        <>
         <h1 className="text-2xl font-semibold">Create account</h1>
         <form className="mt-4 grid gap-3" onSubmit={onSubmit}>
           <Field label="Name" htmlFor="name">
@@ -53,6 +69,8 @@ export default function SignupPage() {
         <p className="mt-4 text-sm">
           Already registered? <Link className="text-cyan" href="/login">Log in</Link>
         </p>
+        </>
+        )}
       </Card>
     </main>
   );

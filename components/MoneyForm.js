@@ -16,14 +16,17 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
     event.preventDefault();
     setBusy(true);
     setError("");
-    const form = new FormData(event.currentTarget);
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
     const body = Object.fromEntries(form.entries());
     for (const key of BOOLEANS) {
       if (form.has(key)) body[key] = form.get(key) === "on";
     }
     try {
       await onSubmit(body);
-      event.currentTarget.reset();
+      // React clears `currentTarget` once the event dispatch finishes, so keep
+      // the element itself instead of reading event.currentTarget after await.
+      formEl.reset();
     } catch (err) {
       setError(err.message);
     } finally {

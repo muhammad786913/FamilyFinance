@@ -4,9 +4,10 @@ import User from "@/models/User";
 import Household from "@/models/Household";
 import Membership from "@/models/Membership";
 import { json, parseJson, handle } from "@/lib/api";
-import { normalizeEmail } from "@/lib/authOptions";
+import { emailAddress } from "@/lib/validation";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 import { passwordProblem } from "@/lib/passwordPolicy";
+import { issueVerification } from "@/lib/issueVerification";
 
 export async function POST(req) {
   try {
@@ -15,10 +16,9 @@ export async function POST(req) {
     const body = await parseJson(req);
     // Honeypot: a real person never fills this hidden field.
     if (String(body.website || "").trim()) return json({ error: "Could not create account." }, 400);
-    const email = normalizeEmail(body.email);
+    const email = emailAddress(body.email);
     const name = String(body.name || "").trim();
     const password = String(body.password || "");
-    if (!email || !email.includes("@")) return json({ error: "Enter a valid email address." }, 400);
     if (name.length < 2) return json({ error: "Enter your name." }, 400);
     const problem = passwordProblem(password, { email });
     if (problem) return json({ error: problem }, 400);
@@ -26,10 +26,21 @@ export async function POST(req) {
     const exists = await User.findOne({ email }).select("_id").lean();
     if (exists) return json({ error: "Could not create account." }, 400);
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ email, name, passwordHash });
+    // New accounts stay unverified until the emailed link is opened.
+    const user = await User.create({ email, name, passwordHash, emailVerifiedAt: null });
     const household = await Household.create({ name: `${name}'s household` });
     await Membership.create({ userId: user._id, householdId: household._id, role: "owner" });
-    return json({ ok: true }, 201);
+    let delivered = false;
+    let message = "Account created. We could not send the verification email yet — try “Resend verification email” shortly.";
+    try {
+      await issueVerification(user);
+      delivered = true;
+      message = "Account created. Check your inbox and open the verification link before logging in.";
+    } catch (err) {
+      if (err.status !== 503) console.error("verification email failed", err);
+      else message = `Account created, but ${err.message}`;
+    }
+    return json({ ok: true, verificationRequired: true, delivered, message }, 201);
   } catch (err) {
     if (err.code === 11000) return json({ error: "Could not create account." }, 400);
     return handle(err);

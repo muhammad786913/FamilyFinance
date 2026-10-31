@@ -6,13 +6,14 @@ export const dynamic = "force-dynamic";
 
 export async function DELETE(_req, { params }) {
   try {
+    const { id } = await params;
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    if (!mongoose.isValidObjectId(params.id)) return json({ error: "Not found" }, 404);
-    const item = await Scenario.findOneAndDelete({ _id: params.id, householdId: membership.householdId });
+    if (!mongoose.isValidObjectId(id)) return json({ error: "Not found" }, 404);
+    const item = await Scenario.findOneAndDelete({ _id: id, householdId: membership.householdId });
     if (!item) return json({ error: "Not found" }, 404);
-    await audit(membership, session.user.id, "delete", "scenario", params.id);
+    await audit(membership, session.user.id, "delete", "scenario", id);
     return json({ ok: true });
   } catch (err) {
     return handle(err);

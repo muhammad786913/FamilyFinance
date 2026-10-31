@@ -74,18 +74,23 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null);
+  const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (override = null) => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-      for (const [key, value] of Object.entries(active)) if (value) qs.set(key, value);
+      const pageToUse = override?.page ?? page;
+      const activeToUse = override?.active ?? active;
+      const qs = new URLSearchParams({ page: String(pageToUse), limit: String(PAGE_SIZE) });
+      for (const [key, value] of Object.entries(activeToUse)) if (value) qs.set(key, value);
       const data = await api(`${endpoint}?${qs}`);
       setItems(data.items || []);
       setTotal(data.total || 0);
       setError("");
+      return data;
     } catch (err) {
       setError(err.message);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -98,6 +103,7 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function setFilter(name, value) {
+    setNotice("");
     setPaying(null);
     setEditing(null);
     setPage(1);
@@ -122,11 +128,20 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
           fields={fields}
           submitLabel={submitLabel}
           onSubmit={async (body) => {
-            await api(endpoint, { method: "POST", body });
-            await load();
+            setNotice("");
+            const saved = await api(endpoint, { method: "POST", body });
+            // Newest-first lists put the new row on page 1, so clear filters and
+            // reload that page explicitly rather than keeping a stale page/filter.
+            setActive({});
+            setPage(1);
+            setPaying(null);
+            setEditing(null);
+            await load({ page: 1, active: {} });
+            setNotice(`${saved?.item?.name || "Record"} saved. It is now the first row below.`);
           }}
         />
       </Card>
+      {notice ? <Alert title="Saved">{notice}</Alert> : null}
       {filters.length ? (
         <Card>
           <div className="grid gap-3 md:grid-cols-3">

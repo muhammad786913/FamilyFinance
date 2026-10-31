@@ -19,7 +19,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 
 ## Stack
 
-Next.js 14 (JavaScript), React 18, Tailwind CSS, MongoDB, Mongoose, NextAuth Credentials, bcryptjs.
+Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAuth Credentials, bcryptjs.
 
 ## Prerequisites
 
@@ -48,8 +48,13 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | `npm start` | Run production server |
 | `npm run indexes` | Ensure MongoDB indexes (needs `.env.local`) |
 | `npm run repair` | One-off repair for pre-`occurrenceKey` databases (safe to re-run) |
+| `npm run verify-backfill` | One-off: marks accounts created before email verification as verified (run once after upgrading) |
 
-For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth, isolation, CRUD, recurrence, payments, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
+For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (including unverified-login blocking and one-time verification tokens), isolation, CRUD, recurrence, payments, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
+
+## Email verification
+
+New accounts stay unverified until they open the emailed link. Tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. Login is blocked server-side for unverified accounts, and resend is rate-limited. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are not locked out.
 
 ## Repeating records
 
@@ -131,11 +136,11 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Rate limiting and plan cache are in-process (not shared across instances). Use Redis for multi-instance deployments.
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
-- Email verification is not implemented; password reset requires SMTP. Without SMTP the API says so instead of pretending to send mail.
-- Automated coverage is 49 unit tests plus a 119-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Email verification requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent.
+- Automated coverage is 54 unit tests plus a 130-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
-- `npm audit` still reports advisories for the Next 14 line (fixed only in Next 16, a breaking migration) and for `nodemailer <= 10.1.3`. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what the reset flow needs.
+- `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.
 - Example (demo) data is an explicit product feature, not seed production data. It is labelled, user-initiated, and removable.
 
 ## License

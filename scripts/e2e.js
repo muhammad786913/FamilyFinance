@@ -8,6 +8,45 @@
  */
 const BASE = process.env.E2E_BASE || "http://localhost:3000";
 const http = require("node:http");
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const mongoose = require("mongoose");
+
+// Verification tests need to pre-seed tokens/verified states, which no public
+// endpoint can do. This is test-harness-only database access against the same
+// local MongoDB the server uses.
+let dbConn = null;
+async function db() {
+  if (dbConn) return dbConn;
+  let uri = process.env.MONGODB_URI;
+  if (!uri) {
+    try {
+      const env = fs.readFileSync(".env.local", "utf8");
+      const line = env.split(/\r?\n/).find((row) => row.startsWith("MONGODB_URI="));
+      if (line) uri = line.slice("MONGODB_URI=".length).trim();
+    } catch {}
+  }
+  dbConn = await mongoose.createConnection(uri || "mongodb://127.0.0.1:27017/familyfinance").asPromise();
+  return dbConn;
+}
+async function markVerified(email) {
+  const conn = await db();
+  await conn.collection("users").updateOne({ email }, { $set: { emailVerifiedAt: new Date() } });
+}
+async function seedVerifyToken(email, { expired = false } = {}) {
+  const conn = await db();
+  const user = await conn.collection("users").findOne({ email });
+  const token = crypto.randomBytes(32).toString("hex");
+  await conn.collection("emailverifications").insertOne({
+    userId: user._id,
+    tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(Date.now() + (expired ? -60_000 : 3_600_000)),
+    usedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return token;
+}
 
 // Each run gets its own last-hop proxy IP so repeated runs do not share rate-limit
 // buckets (the limiter keys on the final X-Forwarded-For hop).
@@ -68,9 +107,10 @@ function monthBounds(ymd) {
   return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, "0")}`, days: last };
 }
 
-function makeClient() {
+function makeClient(ip = E2E_CLIENT_IP) {
   const store = new Map();
   return {
+    ip,
     jar: store,
     header() {
       return [...store.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
@@ -84,7 +124,7 @@ function makeClient() {
       }
     },
     async call(path, { method = "GET", body, raw = false } = {}) {
-      const headers = { cookie: this.header(), "x-forwarded-for": E2E_CLIENT_IP };
+      const headers = { cookie: this.header(), "x-forwarded-for": this.ip };
       let payload;
       if (body !== undefined) {
         headers["content-type"] = "application/json";
@@ -106,7 +146,7 @@ function makeClient() {
       const csrf = await this.call("/api/auth/csrf");
       const res = await fetch(`${BASE}/api/auth/callback/credentials`, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded", cookie: this.header(), "x-forwarded-for": E2E_CLIENT_IP },
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie: this.header(), "x-forwarded-for": this.ip },
         body: new URLSearchParams({
           csrfToken: csrf.data.csrfToken,
           email,
@@ -120,7 +160,7 @@ function makeClient() {
       return res.status;
     },
     async signup(name, email, password) {
-      const res = await fetch(`${BASE}/api/auth/csrf`, { headers: { "x-forwarded-for": E2E_CLIENT_IP } });
+      const res = await fetch(`${BASE}/api/auth/csrf`, { headers: { "x-forwarded-for": this.ip } });
       this.absorb(res);
       return this.call("/api/auth/signup", { method: "POST", body: { name, email, password } });
     },
@@ -128,14 +168,19 @@ function makeClient() {
 }
 
 (async () => {
-  const A = makeClient();
-  const B = makeClient();
-  const C = makeClient();
+  // Each simulated user gets its own proxy IP so per-IP limits are not shared
+  // (otherwise verification/unauthenticated paths would exhaust one bucket).
+  const ipFor = (n) => `198.18.${n}.${Math.floor(Math.random() * 250)}`;
+  const A = makeClient(ipFor(11));
+  const B = makeClient(ipFor(12));
+  const C = makeClient(ipFor(13));
+  const V = makeClient(ipFor(14));
   const stamp = Date.now();
   const password = "TestPass123!";
   const aEmail = `e2e-a-${stamp}@example.com`;
   const bEmail = `e2e-b-${stamp}@example.com`;
   const cEmail = `e2e-c-${stamp}@example.com`;
+  const vEmail = `e2e-v-${stamp}@example.com`;
 
   const today = pktToday();
   const { from: monthStart, to: monthEnd, days: daysInMonth } = monthBounds(today);
@@ -162,11 +207,33 @@ function makeClient() {
   if (!ready) process.exit(2);
 
   // ---------- signup / login ----------
+  const badEmail = await A.signup("Ayesha Khan", "not-an-email", password);
+  check("signup rejects malformed email", badEmail.status === 400, badEmail.data);
   const signupA = await A.signup("Ayesha Khan", aEmail, password);
   check("signup A returns 201", signupA.status === 201, signupA.data);
+  check("signup requires email verification", signupA.data?.verificationRequired === true, signupA.data);
+  check("unverified login blocked", (await A.login(aEmail, password)) === 401, "unverified login");
+  await markVerified(aEmail);
   check("login A succeeds", (await A.login(aEmail, password)) === 200, "login status");
   const sessionA = await A.call("/api/auth/session");
   check("session A has a user id", !!sessionA.data?.user?.id, sessionA.data);
+
+  // ---------- email verification lifecycle (fresh unverified user V) ----------
+  const signupV = await V.signup("Verify User", vEmail, password);
+  check("signup V for verification flow", signupV.status === 201, signupV.data);
+  const resendNoSmtp = await V.call("/api/auth/resend-verification", { method: "POST", body: { email: vEmail } });
+  check("resend reports missing email delivery honestly", resendNoSmtp.status === 503, resendNoSmtp.status);
+  const unknownToken = await V.call("/api/auth/verify-email", { method: "POST", body: { token: "f".repeat(64) } });
+  check("unknown verification token rejected", unknownToken.status === 400, unknownToken.status);
+  const expiredToken = await seedVerifyToken(vEmail, { expired: true });
+  const expiredRes = await V.call("/api/auth/verify-email", { method: "POST", body: { token: expiredToken } });
+  check("expired verification token rejected", expiredRes.status === 400, expiredRes.data);
+  const goodToken = await seedVerifyToken(vEmail);
+  const verifiedRes = await V.call("/api/auth/verify-email", { method: "POST", body: { token: goodToken } });
+  check("verification token verifies the email", verifiedRes.status === 200, verifiedRes.data);
+  const reusedToken = await V.call("/api/auth/verify-email", { method: "POST", body: { token: goodToken } });
+  check("verification token cannot be reused", reusedToken.status === 400, reusedToken.status);
+  check("login after verification succeeds", (await V.login(vEmail, password)) === 200, "login V");
 
   const wrong = makeClient();
   const wrongCsrf = await wrong.call("/api/auth/csrf");
@@ -425,6 +492,7 @@ function makeClient() {
   // ---------- demo data (fresh user C) ----------
   const signupC = await C.signup("Demo User", cEmail, password);
   check("signup C", signupC.status === 201, signupC.data);
+  await markVerified(cEmail);
   check("login C", (await C.login(cEmail, password)) === 200, "login C");
 
   const demo = await C.call("/api/demo", { method: "POST" });
@@ -462,6 +530,7 @@ function makeClient() {
 
   // ---------- isolation (user B) ----------
   check("signup B", (await B.signup("Bilal Ahmed", bEmail, password)).status === 201, "signup B");
+  await markVerified(bEmail);
   check("login B", (await B.login(bEmail, password)) === 200, "login B");
   const bIncome = await B.call("/api/income");
   check("B sees no A income", bIncome.status === 200 && bIncome.data?.total === 0, bIncome.data?.total);
@@ -493,7 +562,7 @@ function makeClient() {
   const anonCsv = await fetch(`${BASE}/api/export/csv?type=income`);
   check("CSV requires auth", anonCsv.status === 401, anonCsv.status);
 
-  const dash = await fetch(`${BASE}/dashboard`, { headers: { cookie: A.header() }, redirect: "manual" });
+  const dash = await fetch(`${BASE}/dashboard`, { headers: { cookie: A.header(), "x-forwarded-for": A.ip }, redirect: "manual" });
   check("dashboard renders for authed user", dash.status === 200, dash.status);
   const dashHtml = dash.status === 200 ? await dash.text() : "";
   check("dashboard is noindex", /noindex/i.test(dashHtml), "no noindex");
@@ -528,26 +597,28 @@ function makeClient() {
   check("scanner path returns 404", scan.status === 404, scan.status);
   const envProbe = await fetch(`${BASE}/.env`, { redirect: "manual" });
   check("env probe returns 404", envProbe.status === 404, envProbe.status);
-  const tr = await rawStatus("TRACE", "/dashboard");
-  check("TRACE method not served", tr >= 400, tr);
+  const imgOpt = await fetch(`${BASE}/_next/image?url=%2Ficon-192.png&w=64&q=75`, { redirect: "manual" });
+  check("image optimizer disabled", imgOpt.status === 404, imgOpt.status);
+  const tr = await rawStatus("PROPFIND", "/dashboard");
+check("PROPFIND method not served", tr >= 400, tr);
 
   const cross = await fetch(`${BASE}/api/expenses`, {
     method: "POST",
-    headers: { cookie: C.header(), "content-type": "application/json", origin: "http://evil.example" },
+    headers: { cookie: C.header(), "content-type": "application/json", origin: "http://evil.example", "x-forwarded-for": C.ip },
     body: JSON.stringify({ name: "CSRF", amountMajor: 1000, dueDate: today, category: "other" }),
   });
   check("cross-origin write blocked", cross.status === 403, cross.status);
 
   const wrongType = await fetch(`${BASE}/api/expenses`, {
     method: "POST",
-    headers: { cookie: C.header(), "content-type": "text/plain" },
+    headers: { cookie: C.header(), "content-type": "text/plain", "x-forwarded-for": C.ip },
     body: "name=x",
   });
   check("non-JSON write rejected", wrongType.status === 415, wrongType.status);
 
   const huge = await fetch(`${BASE}/api/expenses`, {
     method: "POST",
-    headers: { cookie: C.header(), "content-type": "application/json" },
+    headers: { cookie: C.header(), "content-type": "application/json", "x-forwarded-for": C.ip },
     body: JSON.stringify({ name: "Huge", notes: "x".repeat(80_000) }),
   });
   check("oversized body rejected", huge.status === 413, huge.status);
@@ -588,6 +659,7 @@ function makeClient() {
   const delScenario = await A.call(`/api/simulate/${scenarioId}`, { method: "DELETE" });
   check("scenario delete", delScenario.status === 200, delScenario.status);
 
+  if (dbConn) await dbConn.close();
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   if (fail) console.log(JSON.stringify(failures, null, 2));
   process.exit(fail ? 1 : 0);

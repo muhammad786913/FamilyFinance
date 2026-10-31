@@ -8,21 +8,29 @@ import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
+  const [needsVerify, setNeedsVerify] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(event) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNeedsVerify("");
     const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "");
     const res = await signIn("credentials", {
-      email: form.get("email"),
+      email,
       password: form.get("password"),
       website: form.get("website"),
       redirect: false,
     });
     setBusy(false);
     if (!res?.ok) {
+      if (res?.error === "EmailNotVerified") {
+        setNeedsVerify(email);
+        setError("Verify your email before logging in.");
+        return;
+      }
       setError("Email or password is incorrect.");
       return;
     }
@@ -43,6 +51,13 @@ export default function LoginPage() {
           </Field>
           <input className="hidden" type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
           {error ? <p className="text-sm text-[#8B3A3A]">{error}</p> : null}
+          {needsVerify ? (
+            <p className="text-sm">
+              <Link className="text-cyan" href={`/verify-email?email=${encodeURIComponent(needsVerify)}`}>
+                Resend the verification email
+              </Link>
+            </p>
+          ) : null}
           <Button disabled={busy} type="submit">
             {busy ? "Signing in…" : "Log in"}
           </Button>

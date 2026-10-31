@@ -30,10 +30,11 @@ async function load(membership, id) {
 
 export async function PATCH(req, { params }) {
   try {
+    const { id } = await params;
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    const item = await load(membership, params.id);
+    const item = await load(membership, id);
     const body = await parseJson(req);
     if (body.name) item.name = String(body.name).slice(0, 120);
     if (body.amount != null) item.amountMinor = moneyField(body.amount, "amount", { positive: true });
@@ -88,10 +89,11 @@ export async function PATCH(req, { params }) {
 
 export async function DELETE(_req, { params }) {
   try {
+    const { id } = await params;
     const session = await requireSession();
     const membership = await requireMembership(session.user.id);
     assertWrite(membership);
-    const item = await load(membership, params.id);
+    const item = await load(membership, id);
     let removed = 1;
     if (item.scheduleId) {
       // Deleting one occurrence of a repeating schedule would be undone by the next
@@ -107,7 +109,7 @@ export async function DELETE(_req, { params }) {
     } else {
       await item.deleteOne();
     }
-    await audit(membership, session.user.id, "delete", "income", params.id);
+    await audit(membership, session.user.id, "delete", "income", id);
     return json({ ok: true, removed });
   } catch (err) {
     return handle(err);
