@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Empty } from "@/components/ui";
+import { Alert, Badge, Button, Card, Empty, ProgressBar } from "@/components/ui";
 import { api, formatMoney } from "@/lib/format";
 
 const BAND_STYLE = {
@@ -14,6 +14,10 @@ const BAND_STYLE = {
 
 function shortDate(ymd) {
   return new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-PK", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function dayDiff(from, to) {
+  return Math.round((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
 function monthLabel(ymd) {
@@ -32,13 +36,13 @@ function HealthRing({ health }) {
       >
         <div className="grid h-[76px] w-[76px] place-items-center rounded-full bg-white">
           <span className="text-2xl font-semibold">{health.score}</span>
-          <span className="text-[10px] uppercase tracking-wide text-navy/60">/ 100</span>
+          <span className="text-[10px] uppercase tracking-wide text-navy/75">/ 100</span>
         </div>
       </div>
       <div>
         <p className={`text-lg font-semibold ${style.text}`}>{health.label}</p>
         <p className="text-sm text-navy/70">Cash-flow health this planning cycle</p>
-        <p className="mt-1 text-xs text-navy/60">Explainable score from reserve, shortages, essentials, and income mix.</p>
+        <p className="mt-1 text-xs text-navy/75">Explainable score from reserve, shortages, essentials, and income mix.</p>
       </div>
     </div>
   );
@@ -67,7 +71,7 @@ function CashTimeline({ daily }) {
           );
         })}
       </div>
-      <div className="mt-2 flex justify-between text-xs text-navy/60">
+      <div className="mt-2 flex justify-between text-xs text-navy/75">
         <span>{shortDate(daily[0].date)}</span>
         <span>Dashed line = zero balance</span>
         <span>{shortDate(daily[daily.length - 1].date)}</span>
@@ -203,6 +207,10 @@ export default function DashboardPage() {
     acc[item.date].push(item);
     return acc;
   }, {});
+  const cycleDays = Math.max(1, dayDiff(data.period.from, data.period.to) + 1);
+  const elapsedDays = Math.min(cycleDays, Math.max(0, dayDiff(data.period.from, data.today) + 1));
+  const cyclePct = Math.round((elapsedDays / cycleDays) * 100);
+  const nextIncomeItem = agenda.find((item) => item.type === "income");
 
   return (
     <div className="grid gap-6">
@@ -221,6 +229,27 @@ export default function DashboardPage() {
           <Link className="rounded-lg border border-soft bg-white px-4 py-2 text-sm font-semibold text-navy" href="/expenses">
             Add a bill
           </Link>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-soft bg-white p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold">
+            Cycle progress · day {elapsedDays} of {cycleDays}
+          </p>
+          <p className="text-xs text-navy/75">
+            {nextIncomeItem
+              ? `Next income: ${nextIncomeItem.label} · ${shortDate(nextIncomeItem.date)}`
+              : "No income scheduled in the next two weeks"}
+          </p>
+        </div>
+        <div className="mt-2">
+          <ProgressBar value={cyclePct} label="Planning cycle progress" />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-navy/75">
+          <span>{cycleDays - elapsedDays} day(s) left in this cycle</span>
+          <span>{agenda.length} scheduled item(s) in the next 14 days</span>
+          <span>{plan.shortages.length ? `${plan.shortages.length} shortage day(s)` : "No shortage projected"}</span>
         </div>
       </div>
 
@@ -269,22 +298,22 @@ export default function DashboardPage() {
         <Card>
           <p className="text-sm">Confirmed cash today</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(todayRow?.endingConfirmedMinor ?? plan.startingBalanceMinor)}</p>
-          <p className="text-xs text-navy/60">Only money you recorded as received</p>
+          <p className="text-xs text-navy/75">Only money you recorded as received</p>
         </Card>
         <Card>
           <p className="text-sm">Projected month-end</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(plan.totals.endingProjectedMinor)}</p>
-          <p className="text-xs text-navy/60">Includes expected income — an estimate</p>
+          <p className="text-xs text-navy/75">Includes expected income — an estimate</p>
         </Card>
         <Card>
           <p className="text-sm">Safe to spend today</p>
           <p className="mt-1 text-2xl font-semibold text-cyan">{formatMoney(todayRow?.suggestedDiscretionaryMinor ?? 0)}</p>
-          <p className="text-xs text-navy/60">After reserve and essentials until next confirmed income</p>
+          <p className="text-xs text-navy/75">After reserve and essentials until next confirmed income</p>
         </Card>
         <Card>
           <p className="text-sm">Days of positive runway</p>
           <p className="mt-1 text-2xl font-semibold">{runway} days</p>
-          <p className="text-xs text-navy/60">From today until the projection goes below zero</p>
+          <p className="text-xs text-navy/75">From today until the projection goes below zero</p>
         </Card>
       </div>
 
@@ -335,7 +364,7 @@ export default function DashboardPage() {
             <ul className="mt-3 grid gap-3">
               {Object.entries(groupedAgenda).map(([date, items]) => (
                 <li key={date}>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-navy/60">{shortDate(date)}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-navy/75">{shortDate(date)}</p>
                   <ul className="mt-1 grid gap-1 text-sm">
                     {items.map((item, index) => (
                       <li key={`${item.label}-${index}`} className="flex flex-wrap items-baseline justify-between gap-2">
@@ -362,7 +391,7 @@ export default function DashboardPage() {
 
         <Card>
           <h2 className="font-semibold">Where the money goes</h2>
-          <p className="text-xs text-navy/60">Planned bill amounts by category this cycle</p>
+          <p className="text-xs text-navy/75">Planned bill amounts by category this cycle</p>
           {topCategories.length ? (
             <ul className="mt-3 grid gap-3">
               {topCategories.map((c) => (
@@ -370,7 +399,7 @@ export default function DashboardPage() {
                   <div className="flex justify-between gap-2 text-sm">
                     <span className="capitalize">{c.key.replaceAll("_", " ")}</span>
                     <span>
-                      {formatMoney(c.planned)} <span className="text-navy/60">· paid {formatMoney(c.paid)}</span>
+                      {formatMoney(c.planned)} <span className="text-navy/75">· paid {formatMoney(c.paid)}</span>
                     </span>
                   </div>
                   <div className="mt-1 h-2 rounded bg-powder" aria-hidden="true">
@@ -392,7 +421,7 @@ export default function DashboardPage() {
 
       <Card>
         <h2 className="font-semibold">Savings goals</h2>
-        <p className="text-xs text-navy/60">How far each goal has come, based on what you have set aside.</p>
+        <p className="text-xs text-navy/75">How far each goal has come, based on what you have set aside.</p>
         {goals.length ? (
           <ul className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {goals.slice(0, 6).map((goal) => {
@@ -425,7 +454,7 @@ export default function DashboardPage() {
 
       <Card>
         <h2 className="font-semibold">Last six planning cycles</h2>
-        <p className="text-xs text-navy/60">
+        <p className="text-xs text-navy/75">
           Received income versus recorded spending. Unpaid bills are not counted as spending.
         </p>
         <TrendChart trend={trend} />
@@ -440,7 +469,7 @@ export default function DashboardPage() {
         <table className="mt-4 w-full text-left text-sm">
           <caption className="sr-only">Six-cycle history</caption>
           <thead>
-            <tr className="text-xs uppercase tracking-wide text-navy/60">
+            <tr className="text-xs uppercase tracking-wide text-navy/75">
               <th className="p-1">Cycle</th>
               <th className="p-1">Received</th>
               <th className="p-1">Spent</th>
@@ -473,7 +502,7 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
-      <p className="text-xs text-navy/60">
+      <p className="text-xs text-navy/75">
         Projections use the amounts and dates you enter. They are estimates, not financial advice. Today is {today}.
       </p>
     </div>

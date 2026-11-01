@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/format";
-import { Alert, Badge, Button, Card, Empty, Field, Input, Select } from "./ui";
+import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, StatCard } from "./ui";
 import { MoneyForm } from "./MoneyForm";
+import { formatMoney } from "@/lib/format";
 
 const PAGE_SIZE = 10;
 
@@ -65,7 +66,7 @@ function PaymentForm({ endpoint, item, payField, onDone, onCancel }) {
   );
 }
 
-export function Records({ title, endpoint, fields, submitLabel, renderMeta, payField, filters = [], editValues }) {
+export function Records({ title, endpoint, fields, submitLabel, renderMeta, payField, filters = [], editValues, kind }) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -75,6 +76,13 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null);
   const [notice, setNotice] = useState("");
+  const [plan, setPlan] = useState(null);
+
+  useEffect(() => {
+    api("/api/plan")
+      .then((data) => setPlan(data.plan))
+      .catch(() => setPlan(null));
+  }, []);
 
   const load = useCallback(async (override = null) => {
     setLoading(true);
@@ -101,6 +109,20 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
   }, [load]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const isIncome = kind === "income";
+  const stats = isIncome
+    ? [
+        ["Records shown", String(total), "Matched by your filters", "default"],
+        ["Received this cycle", formatMoney(plan?.totals.confirmedIncomeMinor || 0), "Confirmed money only", "cyan"],
+        ["Still expected", formatMoney(plan?.totals.expectedIncomeLeftMinor || 0), "Projected, not cash in hand", "default"],
+        ["Projected month-end", formatMoney(plan?.totals.endingProjectedMinor || 0), "Includes expected income", "default"],
+      ]
+    : [
+        ["Records shown", String(total), "Matched by your filters", "default"],
+        ["Paid this cycle", formatMoney(plan?.totals.actualSpendMinor || 0), "Bills recorded as paid", "cyan"],
+        ["Unpaid bills", formatMoney(plan?.totals.unpaidBillsMinor || 0), "Still due this cycle", (plan?.totals.unpaidBillsMinor || 0) > 0 ? "warn" : "default"],
+        ["Shortage days", String(plan?.shortages?.length || 0), "Days projected below zero", (plan?.shortages?.length || 0) > 0 ? "danger" : "default"],
+      ];
 
   function setFilter(name, value) {
     setNotice("");
@@ -112,18 +134,33 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold">{title}</h1>
-      <div className="flex flex-wrap gap-2">
-        <a
-          className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold text-navy hover:bg-powder"
-          href={`/api/export/csv?type=${payField === "pay" ? "expenses" : "income"}`}
-          download
-        >
-          Download CSV
-        </a>
+      <PageHeader
+        eyebrow={isIncome ? "Money in" : "Money out"}
+        title={title}
+        description={
+          isIncome
+            ? "Expected income is a projection until you record it as received. Filters and search apply to the list below."
+            : "Unpaid bills keep their original due date — they are never moved automatically. Mark a bill paid when the money leaves."
+        }
+        actions={
+          <a
+            className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold text-navy hover:bg-powder"
+            href={`/api/export/csv?type=${payField === "pay" ? "expenses" : "income"}`}
+            download
+          >
+            Download CSV
+          </a>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map(([label, value, hint, tone]) => (
+          <StatCard key={label} label={label} value={value} hint={hint} tone={tone} />
+        ))}
       </div>
+
       <Card>
-        <h2 className="mb-4 text-lg font-semibold">Add</h2>
+        <h2 className="mb-4 text-lg font-semibold">Add {isIncome ? "income" : "a bill"}</h2>
         <MoneyForm
           fields={fields}
           submitLabel={submitLabel}

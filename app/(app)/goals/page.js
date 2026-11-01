@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Card, Empty } from "@/components/ui";
+import { Alert, Button, Card, Empty, PageHeader, ProgressBar, StatCard } from "@/components/ui";
 import { MoneyForm } from "@/components/MoneyForm";
 import { api, formatMoney } from "@/lib/format";
 
@@ -35,15 +35,50 @@ export default function GoalsPage() {
   }, [load]);
 
   const surplus = plan?.totals.projectedSurplusMinor || 0;
+  const totalTarget = items.reduce((sum, goal) => sum + goal.targetMinor, 0);
+  const totalSaved = items.reduce((sum, goal) => sum + goal.savedMinor, 0);
+  const overallPct = totalTarget > 0 ? Math.round((totalSaved / totalTarget) * 100) : 0;
+  const monthlyPlan = items.reduce((sum, goal) => sum + (goal.contributionMinor || 0), 0);
+  const nextGoal = [...items].sort((a, b) => String(a.targetDate).localeCompare(String(b.targetDate)))[0];
+  const covered = items.filter((goal) => surplus > 0 && (goal.contributionMinor || 0) <= surplus).length;
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold">Goals and savings</h1>
+      <PageHeader
+        eyebrow="Savings"
+        title="Goals and savings"
+        description="Saved amounts you record are actual. Feasibility is checked against this cycle’s projected surplus."
+      />
       {error ? (
         <Alert title="Error" tone="danger">
           {error}
         </Alert>
       ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Goals tracked" value={items.length} hint={`${covered} covered by this cycle’s surplus`} />
+        <StatCard label="Total target" value={formatMoney(totalTarget)} hint="Across all goals" />
+        <StatCard label="Set aside" value={formatMoney(totalSaved)} hint={`${overallPct}% of all targets`} tone="cyan" />
+        <StatCard
+          label="Planned monthly saving"
+          value={formatMoney(monthlyPlan)}
+          hint={nextGoal ? `Next deadline: ${nextGoal.targetDate}` : "Add a target date to track deadlines"}
+        />
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-semibold">Overall progress</h2>
+          <span className="text-sm font-semibold text-cyan">{overallPct}%</span>
+        </div>
+        <div className="mt-3">
+          <ProgressBar value={overallPct} label="Overall savings progress" />
+        </div>
+        <p className="mt-2 text-xs text-navy/75">
+          {formatMoney(totalSaved)} saved of {formatMoney(totalTarget)}. Projected surplus this cycle: {formatMoney(surplus)}.
+        </p>
+      </Card>
+
       <Alert title="Actual vs projected">
         Saved amounts you record are actual. Month-end surplus {formatMoney(surplus)} is a projection. Do not save money needed for
         upcoming essential bills.
@@ -99,6 +134,17 @@ export default function GoalsPage() {
                       Delete
                     </Button>
                   </div>
+                </div>
+                <div className="mt-3">
+                  <ProgressBar
+                    value={g.targetMinor > 0 ? Math.min(100, Math.round((g.savedMinor / g.targetMinor) * 100)) : 0}
+                    tone={feasible ? "cyan" : "warn"}
+                    label={`${g.name} savings progress`}
+                  />
+                  <p className="mt-1 text-xs text-navy/75">
+                    {g.targetMinor > 0 ? Math.min(100, Math.round((g.savedMinor / g.targetMinor) * 100)) : 0}% funded ·{" "}
+                    {formatMoney(Math.max(0, left))} remaining
+                  </p>
                 </div>
                 {editing === g._id ? (
                   <div className="mt-4 rounded-lg border border-soft p-3">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Empty } from "@/components/ui";
+import { Alert, Badge, Button, Card, Empty, PageHeader, StatCard } from "@/components/ui";
 import { MoneyForm } from "@/components/MoneyForm";
 import { api, formatMoney } from "@/lib/format";
 
@@ -29,6 +29,14 @@ const FIELDS = [
   { name: "targetDate", label: "Target date", type: "date", required: true },
 ];
 
+function daysUntil(ymd) {
+  if (!ymd) return null;
+  const target = new Date(`${ymd}T00:00:00Z`).getTime();
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86_400_000);
+}
+
 export default function EventsPage() {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
@@ -49,15 +57,38 @@ export default function EventsPage() {
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold">Special events</h1>
-      <p className="text-sm text-navy/80">
-        Affordability is simulated against this month’s plan. Your records are not changed until you add a bill yourself.
-      </p>
+      <PageHeader
+        eyebrow="Big-ticket moments"
+        title="Special events"
+        description="Affordability is simulated against this month’s plan. Your records are not changed until you add a bill yourself."
+      />
       {error ? (
         <Alert title="Error" tone="danger">
           {error}
         </Alert>
       ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Events planned" value={items.length} hint="Weddings, trips, purchases" />
+        <StatCard
+          label="Total planned spend"
+          value={formatMoney(items.reduce((sum, event) => sum + event.amountMinor, 0))}
+          hint="Target amounts only"
+        />
+        <StatCard
+          label="Comfortably affordable"
+          value={items.filter((event) => event.verdict === "comfortably_affordable").length}
+          hint="Against this cycle’s projection"
+          tone="cyan"
+        />
+        <StatCard
+          label="Needs adjustments"
+          value={items.filter((event) => event.verdict !== "comfortably_affordable").length}
+          hint="Move the date, lower the amount, or wait"
+          tone={items.some((event) => event.verdict === "currently_unaffordable") ? "danger" : "warn"}
+        />
+      </div>
+
       <Card>
         <MoneyForm
           submitLabel="Add event"
@@ -78,6 +109,14 @@ export default function EventsPage() {
                   <p className="font-semibold">{ev.name}</p>
                   <p className="text-sm">
                     {formatMoney(ev.amountMinor)} on {ev.targetDate}
+                  </p>
+                  <p className="mt-1 text-xs text-navy/75">
+                    {KINDS.find(([value]) => value === ev.kind)?.[1] || "Other"} ·{" "}
+                    {daysUntil(ev.targetDate) > 0
+                      ? `${daysUntil(ev.targetDate)} day(s) away`
+                      : daysUntil(ev.targetDate) === 0
+                        ? "today"
+                        : `${Math.abs(daysUntil(ev.targetDate))} day(s) past the target date`}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

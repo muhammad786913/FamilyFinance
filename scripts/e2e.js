@@ -318,7 +318,11 @@ function makeClient(ip = E2E_CLIENT_IP) {
     method: "POST",
     body: { name: "Freelance", amount: 30000, expectedDate: futureDate, category: "freelance", frequency: "once" },
   });
-  check("duplicate one-time income rejected 409", dup.status === 409, dup.data);
+  check(
+    "duplicate one-time income is idempotent",
+    dup.status === 200 && dup.data?.alreadyExists === true && dup.data?.item?._id === freelance.data?.item?._id,
+    dup.data
+  );
 
   const badIncome = await A.call("/api/income", { method: "POST", body: { name: "Bad", amount: -5, expectedDate: incomeDate } });
   check("negative income rejected", badIncome.status === 400, badIncome.data);
@@ -505,10 +509,18 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const cInsights = await C.call("/api/insights");
   check("demo data produces a plan", cInsights.data?.plan?.daily?.some((d) => (d.events || []).length > 0), "empty plan");
   check("demo data produces health + trend", typeof cInsights.data?.health?.score === "number" && cInsights.data?.trend?.length === 6, cInsights.data?.health);
+  const agenda = cInsights.data?.agenda || [];
+  const agendaUntil = addDays(today, 14);
+  const windowCrossesCycle = agendaUntil > (cInsights.data?.period?.to || "");
   check(
-    "agenda crosses the planning-cycle boundary",
-    (cInsights.data?.agenda || []).some((row) => row.date > cInsights.data?.period?.to),
-    cInsights.data?.agenda
+    "agenda stays inside today plus 14 days",
+    agenda.every((row) => row.date >= today && row.date <= agendaUntil),
+    agenda
+  );
+  check(
+    "agenda crosses the planning-cycle boundary when the window does",
+    windowCrossesCycle ? agenda.some((row) => row.date > (cInsights.data?.period?.to || "")) : true,
+    { agendaUntil, periodTo: cInsights.data?.period?.to, agenda }
   );
 
   const cCsv = await C.call("/api/export/csv?type=expenses", { raw: true });

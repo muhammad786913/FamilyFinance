@@ -32,6 +32,7 @@ export default function ExpensesPage() {
     <Records
       title="Expenses"
       endpoint="/api/expenses"
+      kind="expense"
       submitLabel="Add bill"
       payField="pay"
       filters={[

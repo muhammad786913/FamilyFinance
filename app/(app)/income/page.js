@@ -28,6 +28,7 @@ export default function IncomePage() {
     <Records
       title="Income"
       endpoint="/api/income"
+      kind="income"
       submitLabel="Add income"
       payField="receive"
       filters={[

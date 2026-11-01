@@ -72,7 +72,7 @@ export function InstallApp({ className = "" }) {
         <button
           type="button"
           aria-label="Hide install button"
-          className="grid h-11 w-8 place-items-center rounded text-navy/60 hover:bg-powder"
+          className="grid h-11 w-8 place-items-center rounded text-navy/75 hover:bg-powder"
           onClick={hide}
         >
           ×

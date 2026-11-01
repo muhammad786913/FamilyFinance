@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Card, Empty, Field, Input, Select } from "@/components/ui";
+import { Alert, Button, Card, Empty, Field, Input, PageHeader, ProgressBar, Select, StatCard } from "@/components/ui";
 import { api, formatMoney } from "@/lib/format";
 
 const CATEGORIES = [
@@ -52,11 +52,18 @@ export default function ReportsPage() {
   const rows = data ? Object.entries(data.byCategory || {}).sort((a, b) => b[1].planned - a[1].planned) : [];
   const max = Math.max(1, ...rows.flatMap(([, v]) => [v.planned, v.actual]));
   const width = (value) => `${Math.min(100, Math.round((value / max) * 100))}%`;
+  const totalPlanned = rows.reduce((sum, [, v]) => sum + v.planned, 0);
+  const totalActual = rows.reduce((sum, [, v]) => sum + v.actual, 0);
+  const paidPct = totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0;
+  const topCategory = rows[0];
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold">Reports</h1>
-      <p className="text-sm">Projected figures are labelled. Actual savings are amounts you recorded on the household.</p>
+      <PageHeader
+        eyebrow="Plan vs actual"
+        title="Reports"
+        description="Projected figures are labelled. Actual savings are amounts you recorded on the household."
+      />
       <Card>
         <form
           className="grid gap-3 md:grid-cols-4 md:items-end"
@@ -110,23 +117,42 @@ export default function ReportsPage() {
       ) : null}
       {data ? (
         <>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ["Starting balance", data.startingBalanceMinor],
-              ["Income received", data.confirmedIncomeMinor],
-              ["Expected remaining income", data.expectedIncomeMinor],
-              ["Actual spending", data.actualSpendMinor],
-              ["Unpaid bills", data.unpaidBillsMinor],
-              ["Projected ending balance", data.endingProjectedMinor],
-              ["Actual savings recorded", data.actualSavingsMinor],
-              ["Projected surplus after reserve", data.projectedSurplusMinor],
-            ].map(([text, value]) => (
-              <Card key={text}>
-                <p className="text-sm">{text}</p>
-                <p className="text-xl font-semibold">{formatMoney(value)}</p>
-              </Card>
+              ["Starting balance", data.startingBalanceMinor, "Cash at the start of this range", "default"],
+              ["Income received", data.confirmedIncomeMinor, "Confirmed money only", "cyan"],
+              ["Expected remaining income", data.expectedIncomeMinor, "Projected on its expected date", "default"],
+              ["Actual spending", data.actualSpendMinor, "Bills recorded as paid", "default"],
+              ["Unpaid bills", data.unpaidBillsMinor, "Still due in this range", data.unpaidBillsMinor > 0 ? "warn" : "default"],
+              ["Projected ending balance", data.endingProjectedMinor, "Includes expected income", "cyan"],
+              ["Actual savings recorded", data.actualSavingsMinor, "Set aside on the household", "default"],
+              ["Projected surplus after reserve", data.projectedSurplusMinor, "Month-end balance minus reserve", "default"],
+            ].map(([text, value, hint, tone]) => (
+              <StatCard key={text} label={text} value={formatMoney(value)} hint={hint} tone={tone} />
             ))}
           </div>
+
+          <Card>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">Paid against planned bills</h2>
+                <p className="text-xs text-navy/75">
+                  {topCategory ? `Largest category: ${label(topCategory[0])} · ${formatMoney(topCategory[1].planned)} planned` : "No bills in this range"}
+                </p>
+              </div>
+              <p className="text-lg font-semibold">
+                {formatMoney(totalActual)} <span className="text-sm font-normal text-navy/75">of {formatMoney(totalPlanned)}</span>
+              </p>
+            </div>
+            <div className="mt-3">
+              <ProgressBar value={paidPct} label="Share of planned bills paid" />
+            </div>
+            <p className="mt-2 text-xs text-navy/75">
+              {paidPct}% of planned bills have been paid in this range. {data.overCategories.length
+                ? `${data.overCategories.length} category(ies) are over their planned amount.`
+                : "No category is over its planned amount."}
+            </p>
+          </Card>
           <Card>
             <h2 className="font-semibold">Plan vs actual by category</h2>
             <p className="mt-1 text-sm text-navy/70">Planned is the bill amount; actual is what you recorded as paid.</p>

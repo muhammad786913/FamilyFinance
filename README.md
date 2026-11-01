@@ -14,7 +14,8 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 - Minimum survival budget (user costs + optional city estimates)
 - CSV export of income/expenses, full JSON household export
 - Clearly labelled, removable example (demo) data
-- Installable PWA (manifest, service worker, offline fallback, install prompt) and a mobile drawer/bottom-tab layout
+- Installable PWA (manifest, service worker, offline fallback, install prompt) and side navigation on every screen size (icon rail + drawer on mobile, sidebar on desktop)
+- Public home page with a labelled example month, feature grid, and four-step walkthrough; KPI cards and progress bars across the workspace routes
 - Public SEO pages; private app routes require authentication (`noindex`)
 
 ## Stack
@@ -25,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, email-verification design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **54 unit tests**, **130 E2E checks**, **301 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **69 unit tests**, **131 E2E checks**, **329 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 

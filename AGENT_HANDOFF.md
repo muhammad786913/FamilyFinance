@@ -4,13 +4,13 @@
 
 FamilyFinance is a full-stack household cash-flow planner for Pakistani families (default PKR). It stores real user records, authenticates accounts, and forecasts cash flow with deterministic JavaScript — no AI API and no fabricated results.
 
-## Verified state (2026-10-31)
+## Verified state (2026-11-01)
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 54/54 pass |
-| `npm.cmd run e2e` | 130/130 pass against a running production server |
-| `npm.cmd run verify` | 301/301 assertions pass |
+| `npm.cmd test` | 69/69 pass |
+| `npm.cmd run e2e` | 131/131 pass against a running production server |
+| `npm.cmd run verify` | 329/329 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
 | Live smoke test | signup → "check your email" → unverified login blocked → verified login → six-step onboarding with live preview → dashboard; income create/duplicate/refresh checked in a browser |
@@ -140,6 +140,15 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 - Dashboard has a Savings goals card and six-cycle history.
 - Demo records are labelled and removable in one click; loading refuses a second time and only restores untouched household fields.
 
+### 7. Engagement and responsive UI refresh
+
+- Public home page rebuilt: labelled illustrative month preview ("Example data — not yours"), capability tiles, four-step cycle explanation, feature grid, honesty strip, and closing call to action.
+- Public header uses a right-side drawer on small screens; desktop keeps the horizontal nav. Footer now groups Product, Account, and Legal links.
+- App navigation moved fully to the side: a 64px icon rail (`Home`, `Plan`, `Bills`, `Goals`, `More`) is always visible on mobile, plus a full grouped drawer. The bottom tab bar was removed.
+- Shared navigation metadata (`components/nav.js`), inline SVG icons (`components/NavIcon.js`), and UI primitives (`PageHeader`, `StatCard`, `ProgressBar` in `components/ui.js`) keep routes consistent.
+- Added KPI summaries and progress bars to plan, reports, goals, events, simulator, survival, settings, income, expenses, and dashboard (cycle progress strip). Plan shows mobile day cards instead of a wide table.
+- Contrast pass raised secondary text opacity and replaced low-contrast cyan text with navy text plus cyan graphical accents. Lighthouse on `/`: accessibility 0.96, best practices 1.0, SEO 1.0 (remaining item is colour contrast on the existing white-on-cyan buttons).
+
 ## Implemented features
 
 - Auth: signup, login, logout, password reset (SMTP-dependent), rate-limited credentials login
@@ -155,7 +164,7 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 - Reports: date/category filters, plan-vs-actual, table view, over-budget categories
 - JSON household export, owner-only household delete
 - PWA: manifest, service worker (offline fallback + public assets only), install prompt, 192/512/maskable/apple icons
-- Mobile shell: desktop sidebar, hamburger drawer, five-item bottom tab bar, safe areas
+- Workspace shell: desktop sidebar, always-visible mobile side rail, full grouped side drawer (no bottom tabs)
 - SEO: robots/sitemap gated by `ALLOW_INDEXING`, canonical/OG metadata, `noindex` on private pages
 - Security headers, per-endpoint auth/authorization, rate limits, health endpoints
 - Bot/abuse layer: scanner 404s, method allow-list, same-origin + JSON-only writes, per-IP budgets with escalating bans, honeypots
@@ -167,7 +176,7 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 3. **Recurring records shown as templates.** Lists, reports, CSV, planner, and payments use occurrences only. Editing an occurrence propagates to its schedule and unpaid future rows; DELETE removes template + future unpaid rows and keeps paid history.
 4. **Password hash leakage.** `passwordHash` is `select: false`; login explicitly selects it.
 5. **Recurring rows regenerated after delete.** Deleting the template stops `ensureOccurrences` from recreating the series.
-6. **Validation gaps.** Strict calendar dates, positive amounts, duplicate one-time records → `409`, invalid goal/event values → `400`, DELETE with nothing found → `404`.
+6. **Validation gaps.** Strict calendar dates, positive amounts, duplicate one-time records → the existing row with `alreadyExists: true` (idempotent, no duplicate insert), invalid goal/event values → `400`, DELETE with nothing found → `404`.
 7. **Health check could lie.** Readiness used to trust a cached Mongoose handle. `connectDb` rebuilds a stale handle and `/api/health/ready` performs an actual `ping()`.
 8. **Income reset threw after await.** `event.currentTarget` was read after the request resolved; capture the form element first.
 9. **New records were hidden by filters/pages.** Reset to page 1, clear filters, and sort newest-first after create.
@@ -185,11 +194,15 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 ## Manual browser checks performed
 
 - Login/logout with the showcase account.
-- Income: created via the form, saw the success notice and the row at the top, repeat submit showed the duplicate error, full reload kept the row.
+- Income: created via the form, saw the success notice and the row at the top, repeat submit showed the idempotent “already existed, so it was not duplicated” notice, full reload kept the row.
 - Signup: honest “check your email” state with SMTP missing; unverified login shown the verification message and resend link.
 - After marking the test account verified in the local DB, login worked.
 - Onboarding: all six steps, conditional school fees, debt/goal branches, preview math, confirm, dashboard.
 - Verified onboarding results directly in MongoDB: `setupComplete: true`, one income, four bills, one debt, one goal, members preserved.
+- App navigation at 800px width: side rail links (`Home`, `Plan`, `Bills`, `Goals`, `More`) work; `More` opens the grouped drawer, moves focus to the close button, locks body scroll, and Escape closes it.
+- Route sweep at 800px width: dashboard, plan, reports, goals, events, simulator, survival, settings, income, and expenses render their KPIs with no horizontal overflow (`scrollWidth` below `innerWidth`) and no console errors.
+- Simulator: submitted an explicit unexpected amount of `0`; comparison showed no change (correct), while a blank amount skips the extra expense entirely.
+- Lighthouse on `/`: accessibility 0.96, best practices 1.0, SEO 1.0. The only remaining audit is `color-contrast` on the existing white-on-cyan primary buttons.
 
 ## Known limitations (honest)
 
@@ -205,6 +218,8 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 - The service worker does not cache authenticated data, so there is no offline record access.
 - The bundled k6 script covers public routes only; it does not prove production-scale capacity.
 - E2E tests the HTTP API and rendered HTML; interactive controls were spot-checked manually, not exhaustively automated.
+- The available desktop browser cannot shrink below 800px, so 375px phone rendering was verified through the responsive rules (64px side rail, stacked cards) rather than device emulation.
+- White text on the bright-cyan primary buttons remains at 2.8:1 contrast. Changing it would require either a darker button background or navy text, both of which alter the agreed palette/visual language; the cyan accent is otherwise always paired with navy text.
 
 ## Deployment notes
 

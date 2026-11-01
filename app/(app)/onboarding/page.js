@@ -242,7 +242,7 @@ export default function OnboardingPage() {
     <Card className="mx-auto max-w-xl">
       <div className="flex items-center justify-between gap-3 text-sm">
         <p className="font-semibold text-cyan">{STEPS[step].title}</p>
-        <p className="text-navy/60">
+        <p className="text-navy/75">
           {step + 1} / {STEPS.length}
         </p>
       </div>

@@ -81,3 +81,56 @@ export function Empty({ title, children }) {
 export function Badge({ children }) {
   return <span className="inline-flex rounded-full bg-powder px-2 py-0.5 text-xs font-medium text-navy">{children}</span>;
 }
+
+const STAT_TONES = {
+  default: "text-navy",
+  cyan: "text-navy",
+  warn: "text-[#7A5C15]",
+  danger: "text-[#8B3A3A]",
+};
+
+/** Compact KPI tile used across the workspace pages. */
+export function StatCard({ label, value, hint, tone = "default", className = "" }) {
+  return (
+    <div className={`rounded-xl border border-soft bg-white p-4 shadow-sm ${className}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-navy/75">{label}</p>
+      <p className={`mt-1 break-words text-xl font-semibold leading-tight sm:text-2xl ${STAT_TONES[tone] || STAT_TONES.default}`}>
+        {value}
+      </p>
+      {hint ? <p className="mt-1 text-xs leading-snug text-navy/75">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** Page heading with a consistent eyebrow, description, and action slot. */
+export function PageHeader({ eyebrow, title, description, actions, children }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-wider text-navy/70">{eyebrow}</p> : null}
+        <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">{title}</h1>
+        {description ? <p className="mt-1 max-w-3xl text-sm leading-relaxed text-navy/70">{description}</p> : null}
+        {children}
+      </div>
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+/** Accessible horizontal progress bar (0–100). */
+export function ProgressBar({ value, tone = "cyan", label }) {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  const colors = { cyan: "bg-cyan", navy: "bg-navy", soft: "bg-soft", warn: "bg-[#B0892C]", danger: "bg-[#8B3A3A]" };
+  return (
+    <div
+      className="h-2 w-full overflow-hidden rounded-full bg-powder"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      aria-label={label || "Progress"}
+    >
+      <div className={`h-full rounded-full ${colors[tone] || colors.cyan}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
