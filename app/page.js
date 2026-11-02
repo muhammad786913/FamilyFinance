@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PublicFooter, PublicHeader } from "@/components/PublicHeader";
 import { HomeActions } from "@/components/HomeActions";
+import { HomeExamplePreview } from "@/components/HomeExample";
 import { NavIcon } from "@/components/NavIcon";
 
 export const metadata = {
@@ -8,24 +9,6 @@ export const metadata = {
   description:
     "Plan household income, bills, and savings in PKR. See when cash may run short before the next payday.",
   alternates: { canonical: "/" },
-};
-
-const money = (amount) =>
-  new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 }).format(amount);
-
-// Illustrative only. Every block that uses it is labelled as an example.
-const EXAMPLE = {
-  cashToday: 84500,
-  monthEnd: 61200,
-  safeToday: 1850,
-  shortDays: 0,
-  upcoming: [
-    { label: "Salary", date: "15 Oct", amount: 185000, kind: "in" },
-    { label: "Rent", date: "5 Oct", amount: -45000, kind: "out" },
-    { label: "School fee", date: "10 Oct", amount: -18500, kind: "out" },
-    { label: "Groceries", date: "12 Oct", amount: -9400, kind: "out" },
-  ],
-  bars: [62, 48, 71, 55, 38, 44, 66, 52, 30, 58, 74, 61],
 };
 
 const CAPABILITIES = [
@@ -112,72 +95,12 @@ export default function HomePage() {
                   <NavIcon name="clock" className="h-4 w-4 text-cyan" /> 2-minute setup
                 </li>
                 <li className="inline-flex items-center gap-1.5">
-                  <NavIcon name="spark" className="h-4 w-4 text-cyan" /> Example data labelled
+                  <NavIcon name="spark" className="h-4 w-4 text-cyan" /> Your data stays yours
                 </li>
               </ul>
             </div>
 
-            {/* Illustrative preview */}
-            <div className="rounded-2xl border border-soft bg-bg p-4 shadow-sm sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold">Example household · Karachi</p>
-                  <p className="text-xs text-navy/75">1–31 October 2026 planning cycle</p>
-                </div>
-                <span className="rounded-full bg-[#F7F1DE] px-2.5 py-1 text-[11px] font-semibold text-[#7A5C15]">
-                  Example data — not yours
-                </span>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                {[
-                  ["Cash today", money(EXAMPLE.cashToday), "text-navy"],
-                  ["Projected month-end", money(EXAMPLE.monthEnd), "text-navy"],
-                  ["Safe to spend today", money(EXAMPLE.safeToday), "text-navy"],
-                  ["Shortage days", `${EXAMPLE.shortDays} days`, "text-navy"],
-                ].map(([label, value, tone]) => (
-                  <div key={label} className="rounded-xl border border-soft bg-white p-3">
-                    <p className="text-[11px] uppercase tracking-wide text-navy/70">{label}</p>
-                    <p className={`mt-0.5 text-base font-semibold ${tone}`}>{value}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 rounded-xl border border-soft bg-white p-3">
-                <div className="flex items-center justify-between text-xs text-navy/75">
-                  <span>Projected balance</span>
-                  <span>Zero line protected</span>
-                </div>
-                <div className="mt-2 flex h-20 items-end gap-1" aria-hidden="true">
-                  {EXAMPLE.bars.map((height, index) => (
-                    <div
-                      key={index}
-                      className="flex-1 rounded-t bg-soft"
-                      style={{ height: `${height}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <ul className="mt-4 grid gap-2">
-                {EXAMPLE.upcoming.map((item) => (
-                  <li key={item.label} className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm">
-                    <span className="flex items-center gap-2">
-                      <span
-                        className={`h-2 w-2 rounded-full ${item.kind === "in" ? "bg-cyan" : "bg-soft"}`}
-                        aria-hidden="true"
-                      />
-                      {item.label}
-                      <span className="text-xs text-navy/70">{item.date}</span>
-                    </span>
-                    <span className={item.kind === "in" ? "font-semibold text-navy" : "text-navy"}>
-                      {item.amount > 0 ? "+" : "−"}
-                      {money(Math.abs(item.amount))}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <HomeExamplePreview />
           </div>
         </section>
 
@@ -270,8 +193,8 @@ export default function HomePage() {
               <div className="max-w-xl">
                 <h2 className="text-2xl font-semibold sm:text-3xl">Start with the month you are actually in.</h2>
                 <p className="mt-2 text-sm text-white/75">
-                  Add income and essentials, then watch the cash timeline update day by day. Load labelled example data
-                  first if you want to explore.
+                  Add income and essentials, then watch the cash timeline update day by day. The example above is only
+                  for visitors — your workspace starts empty and uses only your own numbers.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">

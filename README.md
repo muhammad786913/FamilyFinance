@@ -5,7 +5,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 ## Features
 
 - Sign up, log in, logout, email verification, optional password reset (only if SMTP is configured)
-- Household onboarding (six short steps with conditional questions and a monthly preview) and settings (currency, timezone, planning month, members)
+- Household onboarding (seven selection-first steps with conditional questions and a live monthly preview) and settings (currency, timezone, planning month, members); login lands on onboarding until setup is complete
 - Income and expense CRUD with edit forms, partial payments, status/category filters, pagination
 - Repeating income/bills: one payable occurrence at a time, edits propagate to unpaid future cycles, deleting a row removes the series
 - Rich dashboard: cash-flow health score, 14-day agenda, balance timeline, category split, six-cycle trend, runway
@@ -13,9 +13,9 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 - Goals, special events, what-if simulator with saved scenarios, reports with date/category filters
 - Minimum survival budget (user costs + optional city estimates)
 - CSV export of income/expenses, full JSON household export
-- Clearly labelled, removable example (demo) data
+- Example month on the public home page, shown only to signed-out visitors; the signed-in workspace never seeds or displays example records
 - Installable PWA (manifest, service worker, offline fallback, install prompt) and side navigation on every screen size (icon rail + drawer on mobile, sidebar on desktop)
-- Public home page with a labelled example month, feature grid, and four-step walkthrough; KPI cards and progress bars across the workspace routes
+- Public home page with a labelled example month for signed-out visitors (signed-in visitors see workspace links), feature grid, and four-step walkthrough; KPI cards and progress bars across the workspace routes
 - Public SEO pages; private app routes require authentication (`noindex`)
 
 ## Stack
@@ -72,9 +72,11 @@ Repeating income and bills are stored twice: a hidden **schedule template** and 
 - Deleting an occurrence deletes the series (the template plus future unpaid/unreceived rows). Already-paid history is kept.
 - A **partial** unique index on `(householdId, occurrenceKey)` prevents duplicate occurrences. The old `sparse` index was wrong for compound keys because `householdId` is always present; run `npm run repair` on an existing database to migrate it.
 
-## Demo data
+## Example data
 
-The dashboard offers "Load example data". It seeds two planning cycles of clearly labelled examples (`isDemo: true`, notes say "Example data"), goals, events, and survival figures. It is user-initiated, refuses to load twice, and "Remove example data" deletes only demo rows and restores household fields you have not edited. Nothing is silently presented as your own data.
+Example numbers appear only on the public home page, and only for signed-out visitors (`components/HomeExample.js`). They are labelled "Example data — not yours". After login, the public page shows workspace links and the app itself never loads or offers example records; the dashboard empty states link to onboarding, income, and bills instead.
+
+The `POST/DELETE /api/demo` API and its E2E coverage remain for manual testing and regression checks. Accounts seeded by older versions still see the "You are viewing example data" banner with a one-click "Remove example data" action that deletes only demo rows.
 
 ## PWA / install
 
@@ -144,11 +146,11 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Email verification requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent.
-- Automated coverage is 54 unit tests plus a 130-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 69 unit tests plus a 131-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.
-- Example (demo) data is an explicit product feature, not seed production data. It is labelled, user-initiated, and removable.
+- Example data is confined to the signed-out public home page. The demo API remains an explicit testing/cleanup tool, not seed production data, and the signed-in workspace never presents it as real.
 
 ## License
 

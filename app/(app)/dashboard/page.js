@@ -158,19 +158,6 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  async function seed() {
-    setBusy(true);
-    try {
-      await api("/api/demo", { method: "POST" });
-      setNotice("Example data added. Everything is marked as example and can be removed in one click.");
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function clearDemo() {
     if (!window.confirm("Remove all example data? Your own records are not touched.")) return;
     setBusy(true);
@@ -268,22 +255,37 @@ export default function DashboardPage() {
           </div>
         </Alert>
       ) : null}
-      {!hasRecords ? (
+      {!hasRecords && !household?.setupComplete ? (
         <Card className="bg-powder">
-          <h2 className="text-lg font-semibold">Start with a realistic example</h2>
+          <h2 className="text-lg font-semibold">Finish your setup</h2>
           <p className="mt-1 max-w-2xl text-sm text-navy/80">
-            Load a full month of salary, rent, utilities, groceries, goals, and events to see how the planner works. Example
-            records are labelled and can be removed in one click — your own data is never overwritten.
+            Answer a few quick questions about your household, income, and bills. Your plan is built from your own
+            numbers in about two minutes.
+          </p>
+          <div className="mt-3">
+            <Link
+              className="inline-flex min-h-11 items-center rounded-lg bg-cyan px-5 text-sm font-semibold text-white hover:bg-cyan/90"
+              href="/onboarding"
+            >
+              Continue setup
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+      {!hasRecords && household?.setupComplete ? (
+        <Card className="bg-powder">
+          <h2 className="text-lg font-semibold">Add your first real record</h2>
+          <p className="mt-1 max-w-2xl text-sm text-navy/80">
+            Your setup is complete. Add the income you expect or a bill you actually pay to see the planner work with
+            your own numbers.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" onClick={seed} disabled={busy}>
-              {busy ? "Adding…" : "Load example month"}
-            </Button>
-            {!household?.setupComplete ? (
-              <Link className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold" href="/onboarding">
-                Finish setup instead
-              </Link>
-            ) : null}
+            <Link className="inline-flex min-h-11 items-center rounded-lg bg-cyan px-5 text-sm font-semibold text-white hover:bg-cyan/90" href="/income">
+              Add income
+            </Link>
+            <Link className="inline-flex min-h-11 items-center rounded-lg border border-soft bg-white px-4 text-sm font-semibold text-navy" href="/expenses">
+              Add a bill
+            </Link>
           </div>
         </Card>
       ) : null}

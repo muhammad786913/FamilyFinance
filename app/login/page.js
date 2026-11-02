@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button, Card, Field, Input } from "@/components/ui";
 import { Logo } from "@/components/Logo";
+import { api } from "@/lib/format";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
@@ -18,23 +19,34 @@ export default function LoginPage() {
     setNeedsVerify("");
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "");
-    const res = await signIn("credentials", {
-      email,
-      password: form.get("password"),
-      website: form.get("website"),
-      redirect: false,
-    });
-    setBusy(false);
-    if (!res?.ok) {
-      if (res?.error === "EmailNotVerified") {
-        setNeedsVerify(email);
-        setError("Verify your email before logging in.");
+    try {
+      const res = await signIn("credentials", {
+        email,
+        password: form.get("password"),
+        website: form.get("website"),
+        redirect: false,
+      });
+      if (!res?.ok) {
+        if (res?.error === "EmailNotVerified") {
+          setNeedsVerify(email);
+          setError("Verify your email before logging in.");
+          return;
+        }
+        setError("Email or password is incorrect.");
         return;
       }
-      setError("Email or password is incorrect.");
-      return;
+      try {
+        const home = await api("/api/household");
+        window.location.href = home?.household?.setupComplete ? "/dashboard" : "/onboarding";
+      } catch {
+        window.location.href = "/dashboard";
+      }
+    } catch {
+      // A throttled (429) or unreachable auth endpoint rejects without a JSON body.
+      setError("Could not sign in right now. Wait a moment and try again.");
+    } finally {
+      setBusy(false);
     }
-    window.location.href = "/dashboard";
   }
 
   return (

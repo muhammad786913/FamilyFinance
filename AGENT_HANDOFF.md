@@ -4,7 +4,7 @@
 
 FamilyFinance is a full-stack household cash-flow planner for Pakistani families (default PKR). It stores real user records, authenticates accounts, and forecasts cash flow with deterministic JavaScript — no AI API and no fabricated results.
 
-## Verified state (2026-11-01)
+## Verified state (2026-11-02)
 
 | Check | Result |
 | --- | --- |
@@ -13,7 +13,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 | `npm.cmd run verify` | 329/329 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
-| Live smoke test | signup → "check your email" → unverified login blocked → verified login → six-step onboarding with live preview → dashboard; income create/duplicate/refresh checked in a browser |
+| Live smoke test | signup → "check your email" → unverified login blocked → verified login → seven-step selection-first onboarding with live preview → dashboard; login routing, signed-in home gate, and income create/duplicate/refresh checked in a browser |
 | Node / npm | v24.19.0 / 11.17.0 |
 | MongoDB | 9.0, local `mongodb://127.0.0.1:27017/familyfinance` |
 | Git | check `git log -1 --oneline` for the current commit |
@@ -89,28 +89,29 @@ Migration: `scripts/backfill-email-verified.js` (`npm run verify-backfill`) mark
 
 Limitation: without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but verification/reset mail returns `503`; the UI must not promise an inbox.
 
-### 3. Smart onboarding rebuild
+### 3. Selection-first onboarding
 
-`app/(app)/onboarding/page.js` replaced the old short form with six conversational steps:
+`app/(app)/onboarding/page.js` asks for the household plan immediately after signup/login and is built around picking rather than typing:
 
-1. Welcome — household name (reused from signup), adults, children.
-2. Money in — income amount, frequency (monthly/weekly/daily), next payday.
-3. Essentials — rent, groceries, utilities, transport, and school fees only when children > 0.
-4. Debt — Yes/No; amount and due day only when Yes.
-5. Savings — Yes/No; goal name, target, optional monthly saving, target date.
-6. Review — live monthly preview, optional current cash, confirm.
+1. Household — suggested name, city chips (plus a free-text fallback), adult/child/elder steppers, planning start day.
+2. Money in — income-source tiles (salary, weekly wage, daily wage, freelance, business, family contribution, other), frequency chips, amount, payday.
+3. Essentials — toggle cards for rent, groceries, utilities, internet/phone, transport, school fees (only when children > 0), medicine, and family support; each enabled bill takes an amount and due day. "Add all" and "Clear" shortcuts.
+4. Debt — Yes/No tiles; debt-type chips, monthly instalment, due day.
+5. Savings — Yes/No tiles, goal presets (emergency fund, home, wedding, education, travel, appliance, custom), amount, target-length chips, one-click suggested monthly saving.
+6. Big event — Yes/No tiles, event presets (wedding, Eid, guests, travel, appliance, medical, other), amount, time-away chips.
+7. Review — edit-in-place summary cards, optional cash/savings, emergency-reserve choices (1 month, 2 months, none, custom), survival-budget source choices, then confirm.
 
 Behaviour:
 
-- Progress bar, step counter, Back, Continue, Skip where safe, inline validation.
-- Never re-asks signup data; household name is prefilled.
-- Conditional questions: school fees depend on children; debt and goal details depend on Yes.
-- `lib/onboardingPlan.js` is pure and frequency-aware (weekly/daily/yearly → monthly, integer minor units). It only uses typed values; blank fields stay zero.
-- Preview shows income, bills, debt, savings, leftover, and a shortfall warning.
-- Confirm saves household name/members, income, bills, debt instalment, goal, starting cash, then `setupComplete: true`.
-- In-session retry flags prevent the same item being created twice if a later step fails. The dashboard hides “Finish setup instead” once `setupComplete` is true.
+- Progress rail with reachable steps, step counter, Back/Continue, "Skip this" on optional steps, inline validation, and a sticky live monthly preview.
+- Never re-asks signup data; the household name is prefilled from signup.
+- Conditional content: school fees only when children > 0; debt/goal/event details only after "Yes".
+- `lib/onboardingPlan.js` is pure and frequency-aware (weekly/daily/yearly → monthly, integer minor units). It only uses typed values; blank fields stay zero, and the preview says so.
+- Confirm writes household name/city/members, income, selected bills, debt instalment, goal, event, balances, reserve, survival budget, then `setupComplete: true`.
+- In-session retry flags prevent the same item being created twice if a later write fails.
+- After login, `/onboarding` opens when `household.setupComplete` is false; otherwise the user goes straight to `/dashboard`.
 
-Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 savings: preview showed 7,000 leftover, confirm created exactly one income, four bills, one debt, one goal (plus expected hidden recurring templates), and the dashboard reflected the plan.
+Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, rent 45,000, groceries 22,000, credit-card debt 12,000, emergency-fund goal 300,000 over 12 months (suggested saving 25,000), wedding 200,000 in 6 months, cash 80,000, savings 50,000, reserve 79,000. Confirming created exactly one income, two bills, one debt, one goal, and one event (plus the hidden recurring templates), set `setupComplete: true`, and opened a dashboard built from those numbers.
 
 ### 4. Security and abuse hardening
 
@@ -136,13 +137,16 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 
 ### 6. Demo/example data
 
+- Example data is now visible only to **signed-out** visitors, on the public home page (`components/HomeExample.js`). Signed-in visitors see workspace links instead.
+- The signed-in workspace never offers or seeds examples: the dashboard's "Load example month" CTA and its `seed()` call were removed. Empty states now point to onboarding or to adding a first real income/bill.
+- The legacy "You are viewing example data / Remove example data" banner still appears only when `household.demoSeededAt` is set, so older demo accounts can clean up.
+- The demo API (`POST/DELETE /api/demo`) and its E2E coverage are retained for manual testing and regression tests; no UI path seeds demo data any more.
 - Demo month seeds 12 incomes, 38 bills including partials, 5 goals, and 5 events.
 - Dashboard has a Savings goals card and six-cycle history.
-- Demo records are labelled and removable in one click; loading refuses a second time and only restores untouched household fields.
 
 ### 7. Engagement and responsive UI refresh
 
-- Public home page rebuilt: labelled illustrative month preview ("Example data — not yours"), capability tiles, four-step cycle explanation, feature grid, honesty strip, and closing call to action.
+- Public home page rebuilt: labelled illustrative month preview ("Example data — not yours"), capability tiles, four-step cycle explanation, feature grid, honesty strip, and closing call to action. The example preview is a client component gated by `useSession`, so signed-in visitors see workspace links instead.
 - Public header uses a right-side drawer on small screens; desktop keeps the horizontal nav. Footer now groups Product, Account, and Legal links.
 - App navigation moved fully to the side: a 64px icon rail (`Home`, `Plan`, `Bills`, `Goals`, `More`) is always visible on mobile, plus a full grouped drawer. The bottom tab bar was removed.
 - Shared navigation metadata (`components/nav.js`), inline SVG icons (`components/NavIcon.js`), and UI primitives (`PageHeader`, `StatCard`, `ProgressBar` in `components/ui.js`) keep routes consistent.
@@ -153,11 +157,11 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 
 - Auth: signup, login, logout, password reset (SMTP-dependent), rate-limited credentials login
 - Email verification: hashed one-time tokens (24h), server-side unverified-login block, rate-limited resend, honest delivery failures, legacy backfill
-- Household onboarding: six steps, conditional questions, skip/defaults, live monthly preview, `setupComplete`
+- Household onboarding: seven selection-first steps (city/income/bill/goal/event presets, chips, steppers), conditional questions, skip where safe, live monthly preview, `setupComplete`; login lands on onboarding until it is complete
 - Household settings: members, city, timezone, planning start day, opening/savings/emergency balances
 - Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export; newest-first with immediate post-save visibility
 - Repeating income/bills: hidden schedule template + visible occurrences, propagation, series deletion
-- Dashboard: health score, 14-day agenda, cash timeline, category split, six-cycle trend, runway, savings goals, demo CTA
+- Dashboard: health score, 14-day agenda, cash timeline, category split, six-cycle trend, runway, savings goals; empty states link to onboarding/income/bills and no demo seeding
 - Planning engine: daily/weekly/monthly cash flow, shortages, missed essentials, safe-to-spend, explanations
 - Goals, special events with affordability verdicts, what-if simulator with saved/replayable scenarios
 - Survival budget with city estimates and explanations
@@ -197,8 +201,9 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 - Income: created via the form, saw the success notice and the row at the top, repeat submit showed the idempotent “already existed, so it was not duplicated” notice, full reload kept the row.
 - Signup: honest “check your email” state with SMTP missing; unverified login shown the verification message and resend link.
 - After marking the test account verified in the local DB, login worked.
-- Onboarding: all six steps, conditional school fees, debt/goal branches, preview math, confirm, dashboard.
-- Verified onboarding results directly in MongoDB: `setupComplete: true`, one income, four bills, one debt, one goal, members preserved.
+- Onboarding: all seven steps, conditional school fees, debt/goal/event branches, preset selections, suggestion button, preview math, confirm, dashboard; a fresh signup was routed to onboarding and a completed account to the dashboard.
+- Public home: signed out shows the labelled example month; after login the same page shows "You are signed in" and workspace links, with no example figures.
+- Verified onboarding results directly in MongoDB: `setupComplete: true`, one income, two bills, one debt, one goal, one event, members, balances, and reserve preserved (plus the hidden recurring templates).
 - App navigation at 800px width: side rail links (`Home`, `Plan`, `Bills`, `Goals`, `More`) work; `More` opens the grouped drawer, moves focus to the close button, locks body scroll, and Escape closes it.
 - Route sweep at 800px width: dashboard, plan, reports, goals, events, simulator, survival, settings, income, and expenses render their KPIs with no horizontal overflow (`scrollWidth` below `innerWidth`) and no console errors.
 - Simulator: submitted an explicit unexpected amount of `0`; comparison showed no change (correct), while a blank amount skips the extra expense entirely.
@@ -209,7 +214,7 @@ Verified in a browser with 60,000 income, 45,000 bills, 3,000 debt, 5,000 saving
 - Rate limits and plan cache are per-process. Use Redis for multiple instances; the in-process limiter is not a distributed defense.
 - Email delivery (verification and reset) requires SMTP. Without it the UI reports that delivery is not configured. No 2FA yet.
 - Verification/reset links depend on a correct `APP_URL`/`NEXTAUTH_URL`.
-- Onboarding uses separate writes for household, income, bills, debt, and goal. In-session retry flags skip already-created items, but a reload/crash mid-confirm can leave a partial plan; there is no MongoDB transaction.
+- Onboarding uses separate writes for household, income, bills, debt, goal, event, and final balances. In-session retry flags skip already-created items, but a reload/crash mid-confirm can leave a partial plan; there is no MongoDB transaction.
 - Household deletion and recurring-occurrence generation are also not transactional.
 - No shared-household invite UI yet (membership roles exist).
 - CSP allows `'unsafe-inline'` scripts because Next.js injects hydration bootstrap inline. A nonce-based CSP is future work.
