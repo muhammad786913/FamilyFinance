@@ -796,6 +796,11 @@ export default function OnboardingPage() {
                     </ChoiceChip>
                   ))}
                 </div>
+                {data.incomeFrequency !== "monthly" ? (
+                  <p className="mt-1 text-xs text-navy/70">
+                    The preview converts this to a monthly average; your plan uses each real payment date.
+                  </p>
+                ) : null}
               </div>
 
               <Field

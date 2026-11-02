@@ -30,6 +30,9 @@ test("email validation accepts normal addresses and rejects malformed ones", () 
 
 test("monthly preview converts frequency and flags a shortfall", () => {
   assert.equal(monthlyMinor(1200, "weekly"), Math.round((120000 * 52) / 12));
+  assert.equal(monthlyMinor(150000, "monthly"), 15_000_000);
+  assert.equal(monthlyMinor(500, "daily"), Math.round((50000 * 365) / 12));
+  assert.equal(monthlyMinor(120000, "yearly"), 1_000_000);
   const plan = monthlyPreview({ income: 50000, bills: [10000, 5000], debt: 2000, goal: 3000 });
   assert.equal(plan.incomeMinor, 5_000_000);
   assert.equal(plan.billsMinor, 1_500_000);

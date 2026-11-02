@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, email-verification design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **69 unit tests**, **131 E2E checks**, **329 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **70 unit tests**, **131 E2E checks**, **329 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -146,7 +146,7 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Email verification requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent.
-- Automated coverage is 69 unit tests plus a 131-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 70 unit tests plus a 131-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.

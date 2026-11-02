@@ -8,7 +8,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 69/69 pass |
+| `npm.cmd test` | 70/70 pass |
 | `npm.cmd run e2e` | 131/131 pass against a running production server |
 | `npm.cmd run verify` | 329/329 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
@@ -190,7 +190,8 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
 - `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`
-- `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, frequency conversion, preview totals, shortfall, and blank-field safety.
+- `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, and blank-field safety.
+- `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
 - `scripts/e2e.js` covers signup/login/session, malformed-email rejection, unverified-login blocking, verification token lifecycle (unknown/expired/valid/reuse), login after verification, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
 - Test harnesses use a separate simulated IP per client so one bucket is not exhausted; verification tests use test-only DB helpers (`markVerified`, `seedVerifyToken`) against the local MongoDB.
 - `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget.
