@@ -7,7 +7,7 @@ import formPayloadModule from "@/lib/formPayload";
 import moneyModule from "@/lib/money";
 
 const { formPayload } = formPayloadModule;
-const { MAX_MAJOR } = moneyModule;
+const { MAX_INPUT_MAJOR } = moneyModule;
 
 export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
   const [error, setError] = useState("");
@@ -63,7 +63,7 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
               defaultValue={value(f)}
               step={f.step}
               min={f.step ? 0 : undefined}
-              max={f.step ? MAX_MAJOR : undefined}
+              max={f.step ? MAX_INPUT_MAJOR : undefined}
               inputMode={f.type === "number" ? "decimal" : undefined}
             />
           )}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavIcon } from "@/components/NavIcon";
 import { Button, Card, Field, Input, Select } from "@/components/ui";
 import { api, formatMoney } from "@/lib/format";
+import moneyModule from "@/lib/money";
 import { monthlyPreview } from "@/lib/onboardingPlan";
 
 const STEPS = [
@@ -88,7 +89,7 @@ const EVENT_PRESETS = [
 
 const TARGET_MONTHS = [6, 12, 24, 36];
 const EVENT_MONTHS = [1, 3, 6, 12];
-const MONEY_MAX = Number.MAX_SAFE_INTEGER / 100;
+const MONEY_MAX = moneyModule.MAX_INPUT_MAJOR;
 
 function todayDay() {
   return String(Math.min(28, new Date().getDate()));
@@ -262,7 +263,16 @@ function DaySelect({ id, value, onChange }) {
   );
 }
 
-function MonthPreview({ preview }) {
+function MonthPreview({ preview, problem }) {
+  if (problem) {
+    return (
+      <div className="rounded-xl border border-soft bg-white p-4 shadow-sm lg:sticky lg:top-6" role="status">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-navy/70">Your month so far</p>
+        <p className="mt-1 text-sm font-semibold text-[#8B3A3A]">Preview unavailable</p>
+        <p className="mt-1 text-xs leading-snug text-navy/70">{problem}</p>
+      </div>
+    );
+  }
   const spend = preview.essentialsMinor + preview.savingsMinor;
   const pct = preview.incomeMinor > 0 ? Math.min(100, Math.round((spend / preview.incomeMinor) * 100)) : 0;
   return (
@@ -369,13 +379,31 @@ export default function OnboardingPage() {
   const selectedBills = visibleBills.filter((bill) => data.bills[bill.key].on && minorOf(data.bills[bill.key].amount) > 0);
   const billTotalMinor = selectedBills.reduce((sum, bill) => sum + minorOf(data.bills[bill.key].amount), 0);
 
-  const preview = monthlyPreview({
-    income: data.incomeAmount,
-    frequency: data.incomeFrequency,
-    bills: selectedBills.map((bill) => data.bills[bill.key].amount),
-    debt: data.hasDebt ? data.debtAmount : 0,
-    goal: data.hasGoal ? data.goalMonthly : 0,
-  });
+  let preview = {
+    incomeMinor: 0,
+    billsMinor: 0,
+    debtMinor: 0,
+    essentialsMinor: 0,
+    savingsMinor: 0,
+    committedMinor: 0,
+    leftoverMinor: 0,
+    shortfall: false,
+  };
+  let previewProblem = "";
+  try {
+    preview = monthlyPreview({
+      income: data.incomeAmount,
+      frequency: data.incomeFrequency,
+      bills: selectedBills.map((bill) => data.bills[bill.key].amount),
+      debt: data.hasDebt ? data.debtAmount : 0,
+      goal: data.hasGoal ? data.goalMonthly : 0,
+    });
+  } catch (err) {
+    previewProblem =
+      err && err.code === "AMOUNT_OVERFLOW"
+        ? err.message
+        : "The monthly preview could not be calculated. Lower the amounts and try again.";
+  }
 
   const reserveMinor =
     data.reserveChoice === "one"
@@ -395,6 +423,7 @@ export default function OnboardingPage() {
   const eventPreset = EVENT_PRESETS.find((item) => item.id === data.eventKind) || EVENT_PRESETS[0];
 
   function validate(targetStep = step) {
+    if (previewProblem) return previewProblem;
     if (targetStep === 0) {
       if (!String(data.name).trim()) return "Give your household a name first.";
       if (!String(data.city).trim()) return "Pick your city — it keeps survival estimates realistic.";
@@ -1361,7 +1390,7 @@ export default function OnboardingPage() {
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-3 text-sm">
                   <span>Essentials, debt, and saving</span>
-                  <strong>{formatMoney(preview.essentialsMinor + preview.savingsMinor)}</strong>
+                  <strong>{formatMoney(preview.committedMinor)}</strong>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 border-t border-soft pt-2 text-sm font-semibold">
                   <span>{preview.leftoverMinor < 0 ? "Short by" : "Left for everything else"}</span>
@@ -1412,7 +1441,7 @@ export default function OnboardingPage() {
       </div>
 
       <aside className="hidden lg:block" aria-label="Live monthly preview">
-        <MonthPreview preview={preview} />
+        <MonthPreview preview={preview} problem={previewProblem} />
       </aside>
     </div>
   );

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { newToken, hashToken, tokenProblem } = require("../lib/emailVerification");
 const { monthlyPreview, monthlyMinor } = require("../lib/onboardingPlan");
+const { MAX_INPUT_MAJOR } = require("../lib/money");
 const { emailAddress } = require("../lib/validation");
 
 test("verification tokens are random and never stored raw", () => {
@@ -47,6 +48,51 @@ test("monthly preview converts frequency and flags a shortfall", () => {
 
 test("onboarding preview never invents amounts for blank fields", () => {
   const plan = monthlyPreview({ income: "", bills: ["", null, undefined], debt: "", goal: "" });
+  assert.equal(plan.incomeMinor, 0);
+  assert.equal(plan.billsMinor, 0);
+  assert.equal(plan.leftoverMinor, 0);
+  assert.equal(plan.shortfall, false);
+});
+
+test("preview math stays exact when every field is at the input cap", () => {
+  const plan = monthlyPreview({
+    income: MAX_INPUT_MAJOR,
+    frequency: "daily",
+    bills: Array(8).fill(MAX_INPUT_MAJOR),
+    debt: MAX_INPUT_MAJOR,
+    goal: MAX_INPUT_MAJOR,
+  });
+  const incomeMinor = BigInt(MAX_INPUT_MAJOR) * 100n;
+  const expectedIncome = Number((incomeMinor * 365n + 6n) / 12n);
+  assert.equal(plan.incomeMinor, expectedIncome);
+  assert.equal(plan.billsMinor, 8 * MAX_INPUT_MAJOR * 100);
+  assert.equal(plan.debtMinor, MAX_INPUT_MAJOR * 100);
+  assert.equal(plan.savingsMinor, MAX_INPUT_MAJOR * 100);
+  assert.equal(plan.committedMinor, 10 * MAX_INPUT_MAJOR * 100);
+  assert.equal(plan.leftoverMinor, expectedIncome - 10 * MAX_INPUT_MAJOR * 100);
+  assert.equal(plan.shortfall, false);
+  for (const key of [
+    "incomeMinor",
+    "billsMinor",
+    "debtMinor",
+    "essentialsMinor",
+    "savingsMinor",
+    "committedMinor",
+    "leftoverMinor",
+  ]) {
+    assert.ok(Number.isSafeInteger(plan[key]), `${key} must stay a safe integer`);
+  }
+});
+
+test("preview ignores amounts above the input cap instead of returning unsafe math", () => {
+  assert.equal(monthlyMinor(MAX_INPUT_MAJOR + 1, "daily"), 0);
+  const plan = monthlyPreview({
+    income: MAX_INPUT_MAJOR + 1,
+    frequency: "weekly",
+    bills: [MAX_INPUT_MAJOR + 1],
+    debt: MAX_INPUT_MAJOR + 1,
+    goal: MAX_INPUT_MAJOR + 1,
+  });
   assert.equal(plan.incomeMinor, 0);
   assert.equal(plan.billsMinor, 0);
   assert.equal(plan.leftoverMinor, 0);

@@ -8,7 +8,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 70/70 pass |
+| `npm.cmd test` | 76/76 pass |
 | `npm.cmd run e2e` | 131/131 pass against a running production server |
 | `npm.cmd run verify` | 329/329 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
@@ -106,7 +106,7 @@ Behaviour:
 - Progress rail with reachable steps, step counter, Back/Continue, "Skip this" on optional steps, inline validation, and a sticky live monthly preview.
 - Never re-asks signup data; the household name is prefilled from signup.
 - Conditional content: school fees only when children > 0; debt/goal/event details only after "Yes".
-- `lib/onboardingPlan.js` is pure and frequency-aware (weekly/daily/yearly → monthly, integer minor units). It only uses typed values; blank fields stay zero, and the preview says so.
+- `lib/onboardingPlan.js` is pure and frequency-aware (weekly/daily/yearly → monthly, integer minor units). It only uses typed values; blank fields stay zero, and the preview says so. Conversions use exact integer math, and per-field amounts are capped at Rs 1 trillion so every allowed combination stays inside the safe-integer range.
 - Confirm writes household name/city/members, income, selected bills, debt instalment, goal, event, balances, reserve, survival budget, then `setupComplete: true`.
 - In-session retry flags prevent the same item being created twice if a later write fails.
 - After login, `/onboarding` opens when `household.setupComplete` is false; otherwise the user goes straight to `/dashboard`.
@@ -190,7 +190,8 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
 - `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`
-- `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, and blank-field safety.
+- `tests/calculation-properties.test.js` runs seeded random previews and monthly plans across the full allowed input range, checking exact paisa totals, every plan identity, the daily balance chain, and a 31-day daily-wage month at the cap.
+- `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
 - `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
 - `scripts/e2e.js` covers signup/login/session, malformed-email rejection, unverified-login blocking, verification token lifecycle (unknown/expired/valid/reuse), login after verification, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
 - Test harnesses use a separate simulated IP per client so one bucket is not exhausted; verification tests use test-only DB helpers (`markVerified`, `seedVerifyToken`) against the local MongoDB.

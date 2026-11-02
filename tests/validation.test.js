@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { ymd, moneyField, nonNegativeNumberField, nonNegativeIntegerField, addMinorField, oneOf } = require("../lib/validation");
+const { MAX_INPUT_MAJOR, MAX_INPUT_MINOR } = require("../lib/money");
 
 test("ymd accepts real calendar dates", () => {
   assert.equal(ymd("2026-10-31"), "2026-10-31");
@@ -16,8 +17,10 @@ test("ymd rejects impossible or malformed dates", () => {
 test("moneyField converts major units and rejects invalid values", () => {
   assert.equal(moneyField("1200.50"), 120050);
   assert.equal(moneyField(0), 0);
-  assert.equal(moneyField(Number.MAX_SAFE_INTEGER / 100), Number.MAX_SAFE_INTEGER);
-  assert.throws(() => moneyField(Number.MAX_SAFE_INTEGER / 100 + 1), /Invalid amount/);
+  assert.equal(moneyField(MAX_INPUT_MAJOR), MAX_INPUT_MINOR);
+  assert.equal(moneyField(MAX_INPUT_MAJOR.toFixed(2)), MAX_INPUT_MINOR);
+  assert.throws(() => moneyField(MAX_INPUT_MAJOR + 1), /Invalid amount/);
+  assert.throws(() => moneyField(Number.MAX_SAFE_INTEGER / 100), /Invalid amount/);
   assert.throws(() => moneyField(-5), /Invalid amount/);
   assert.throws(() => moneyField("abc"), /Invalid amount/);
   assert.throws(() => moneyField(0, "amount", { positive: true }), /Invalid amount/);
