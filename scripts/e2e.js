@@ -212,7 +212,8 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const signupA = await A.signup("Ayesha Khan", aEmail, password);
   check("signup A returns 201", signupA.status === 201, signupA.data);
   check("signup requires email verification", signupA.data?.verificationRequired === true, signupA.data);
-  check("unverified login blocked", (await A.login(aEmail, password)) === 401, "unverified login");
+  const unverifiedLogin = await A.login(aEmail, password);
+  check("unverified login allowed because verification is optional", unverifiedLogin === 200, unverifiedLogin);
   await markVerified(aEmail);
   check("login A succeeds", (await A.login(aEmail, password)) === 200, "login status");
   const sessionA = await A.call("/api/auth/session");
@@ -392,6 +393,91 @@ function makeClient(ip = E2E_CLIENT_IP) {
   check("insights has a six-cycle trend", insights.data?.trend?.length === 6, insights.data?.trend?.length);
   check("insights exposes runway days", Number.isFinite(insights.data?.runway), insights.data?.runway);
   check("insights totals categories", insights.data?.categories?.rent_housing?.planned === 5000000, insights.data?.categories?.rent_housing);
+  const offRangeInsights = await A.call(`/api/insights?from=${nextMonth.from}&to=${nextMonth.to}`);
+  check(
+    "insights still returns today's row for an off-range request",
+    offRangeInsights.status === 200 && offRangeInsights.data?.todayRow?.date === today,
+    offRangeInsights.data?.todayRow?.date
+  );
+
+  // ---------- daily saving check-ins ----------
+  const checkinStart = await A.call("/api/checkins");
+  check(
+    "check-ins start empty",
+    checkinStart.status === 200 && Array.isArray(checkinStart.data?.items) && checkinStart.data.items.length === 0,
+    checkinStart.data
+  );
+  check("check-ins report today", checkinStart.data?.today === today, checkinStart.data?.today);
+
+  const expectedBudget = Number.isSafeInteger(insights.data?.todayRow?.suggestedDiscretionaryMinor)
+    ? Math.max(0, insights.data.todayRow.suggestedDiscretionaryMinor)
+    : 0;
+  const checkinToday = await A.call("/api/checkins", { method: "POST", body: { spent: 100 } });
+  check(
+    "today's check-in saved",
+    checkinToday.status === 200 && checkinToday.data?.item?.spentMinor === 10000,
+    checkinToday.data
+  );
+  check(
+    "check-in stores today's safe-to-spend snapshot",
+    checkinToday.data?.item?.date === today && checkinToday.data?.item?.budgetMinor === expectedBudget,
+    { item: checkinToday.data?.item, expectedBudget }
+  );
+
+  const checkinUpdate = await A.call("/api/checkins", { method: "POST", body: { spent: 250, note: "tea" } });
+  check(
+    "same-day check-in updates instead of duplicating",
+    checkinUpdate.status === 200 &&
+      checkinUpdate.data?.item?.spentMinor === 25000 &&
+      checkinUpdate.data?.item?._id === checkinToday.data?.item?._id,
+    checkinUpdate.data
+  );
+  const checkinList = await A.call("/api/checkins?days=14");
+  check(
+    "check-in appears in the recent list",
+    (checkinList.data?.items || []).some((row) => row.date === today && row.spentMinor === 25000),
+    checkinList.data
+  );
+
+  const backfillCheckin = await A.call("/api/checkins", { method: "POST", body: { date: addDays(today, -2), spent: 0 } });
+  check(
+    "backfill inside 30 days accepted",
+    backfillCheckin.status === 200 && backfillCheckin.data?.item?.date === addDays(today, -2),
+    backfillCheckin.data
+  );
+  const futureCheckin = await A.call("/api/checkins", {
+    method: "POST",
+    body: { date: addDays(today, 1), spent: 10 },
+  });
+  check("future check-in rejected", futureCheckin.status === 400, futureCheckin.data);
+  const oldCheckin = await A.call("/api/checkins", {
+    method: "POST",
+    body: { date: addDays(today, -31), spent: 10 },
+  });
+  check("check-in older than 30 days rejected", oldCheckin.status === 400, oldCheckin.data);
+  const badCheckinDate = await A.call("/api/checkins", {
+    method: "POST",
+    body: { date: "2026-02-30", spent: 10 },
+  });
+  check("invalid check-in date rejected", badCheckinDate.status === 400, badCheckinDate.data);
+  const negativeCheckin = await A.call("/api/checkins", { method: "POST", body: { spent: -1 } });
+  check("negative check-in amount rejected", negativeCheckin.status === 400, negativeCheckin.data);
+  const hugeCheckin = await A.call("/api/checkins", {
+    method: "POST",
+    body: { spent: 1_000_000_000_001 },
+  });
+  check("check-in above the Rs 1 trillion cap rejected", hugeCheckin.status === 400, hugeCheckin.data);
+  const capCheckin = await A.call("/api/checkins", {
+    method: "POST",
+    body: { date: addDays(today, -3), spent: 1_000_000_000_000 },
+  });
+  check(
+    "check-in accepts exactly the Rs 1 trillion cap",
+    capCheckin.status === 200 &&
+      capCheckin.data?.item?.date === addDays(today, -3) &&
+      capCheckin.data?.item?.spentMinor === 100_000_000_000_000,
+    capCheckin.data
+  );
 
   // ---------- reports ----------
   const report = await A.call("/api/reports");
@@ -554,6 +640,17 @@ function makeClient(ip = E2E_CLIENT_IP) {
   check("B cannot replay A scenario", bReplayA.status === 404, bReplayA.status);
   const bPlan = await B.call("/api/plan");
   check("B plan is isolated", bPlan.data?.plan?.totals?.confirmedIncomeMinor === 0, bPlan.data?.plan?.totals?.confirmedIncomeMinor);
+  const bCheckins = await B.call("/api/checkins");
+  check("B sees no A check-ins", bCheckins.status === 200 && bCheckins.data?.items?.length === 0, bCheckins.data);
+  const bCheckin = await B.call("/api/checkins", { method: "POST", body: { spent: 5 } });
+  check("B can record its own check-in", bCheckin.status === 200 && bCheckin.data?.item?.spentMinor === 500, bCheckin.data);
+  const aCheckinsAfterB = await A.call("/api/checkins");
+  check(
+    "B check-in does not leak into A",
+    aCheckinsAfterB.data?.items?.length === 3 &&
+      !(aCheckinsAfterB.data?.items || []).some((row) => row._id === bCheckin.data?.item?._id),
+    aCheckinsAfterB.data
+  );
 
   // ---------- security headers / private pages ----------
   const home = await fetch(`${BASE}/`);
@@ -573,6 +670,8 @@ function makeClient(ip = E2E_CLIENT_IP) {
   check("demo API rejects anonymous writes", anonDemo.status === 401 || anonDemo.status === 415, anonDemo.status);
   const anonCsv = await fetch(`${BASE}/api/export/csv?type=income`);
   check("CSV requires auth", anonCsv.status === 401, anonCsv.status);
+  const anonCheckins = await fetch(`${BASE}/api/checkins`, { headers: { "x-forwarded-for": E2E_CLIENT_IP } });
+  check("check-ins require auth", anonCheckins.status === 401, anonCheckins.status);
 
   const dash = await fetch(`${BASE}/dashboard`, { headers: { cookie: A.header(), "x-forwarded-for": A.ip }, redirect: "manual" });
   check("dashboard renders for authed user", dash.status === 200, dash.status);

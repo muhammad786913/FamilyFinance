@@ -29,7 +29,14 @@ export async function GET(req) {
         : runPlan(await loadPlanInput(membership.householdId, today, horizon));
     const agenda = buildAgenda(agendaPlan, today, 14);
     const runway = runwayDays(plan, today);
-    const todayRow = plan.daily.find((d) => d.date === today) || plan.daily[0] || null;
+    // A custom `from`/`to` may not include today. In that case load the cycle
+    // that does, because "safe to spend today" must come from today's row.
+    let todayRow = plan.daily.find((d) => d.date === today) || null;
+    if (!todayRow) {
+      const bounds = monthBounds(today, household.planningStartDay || 1);
+      const currentPlan = runPlan(await loadPlanInput(membership.householdId, bounds.start, bounds.end));
+      todayRow = currentPlan.daily.find((d) => d.date === today) || null;
+    }
 
     const trend = [];
     for (let offset = -5; offset <= 0; offset += 1) {

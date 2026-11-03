@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, email-verification design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **76 unit tests**, **131 E2E checks**, **329 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **88 unit tests**, **149 E2E checks**, **319 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Development server |
-| `npm test` | Unit tests for money, dates, engine, insights, CSV, validation |
+| `npm test` | Unit tests for money, dates, engine, insights, CSV, validation, and daily-saving math |
 | `npm run e2e` | End-to-end API/browser-flow checks against a running server |
 | `npm run verify` | Recomputes plan totals, daily balances, safe-to-spend, runway, health score, agenda, reports, and survival from a seeded month and compares them with the API |
 | `npm run lint` | ESLint |
@@ -57,11 +57,11 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | `npm run repair` | One-off repair for pre-`occurrenceKey` databases (safe to re-run) |
 | `npm run verify-backfill` | One-off: marks accounts created before email verification as verified (run once after upgrading) |
 
-For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (including unverified-login blocking and one-time verification tokens), isolation, CRUD, recurrence, payments, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
+For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (verification tokens plus the current optional-verification login), isolation, CRUD, recurrence, payments, daily check-ins, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
 
 ## Email verification
 
-New accounts stay unverified until they open the emailed link. Tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. Login is blocked server-side for unverified accounts, and resend is rate-limited. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are not locked out.
+New accounts are created unverified (`emailVerifiedAt: null`); tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. In the current build email verification is **optional**: a correct password can sign in before the link is opened, while the verification flow and resend limits still work. To require verification, re-add the `EmailNotVerified` check inside `authorize` in `lib/authOptions.js`. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are marked as verified.
 
 ## Repeating records
 
@@ -77,6 +77,25 @@ Repeating income and bills are stored twice: a hidden **schedule template** and 
 Example numbers appear only on the public home page, and only for signed-out visitors (`components/HomeExample.js`). They are labelled "Example data — not yours". After login, the public page shows workspace links and the app itself never loads or offers example records; the dashboard empty states link to onboarding, income, and bills instead.
 
 The `POST/DELETE /api/demo` API and its E2E coverage remain for manual testing and regression checks. Accounts seeded by older versions still see the "You are viewing example data" banner with a one-click "Remove example data" action that deletes only demo rows.
+
+## Daily saving check-in
+
+The dashboard shows a **Today's saving** card built on the planner's safe-to-spend amount. Log what you spent on non-essentials today (blank means Rs 0) and the card compares it with the budget:
+
+| Result | When | Feedback |
+| --- | --- | --- |
+| `great` | At least half the budget stayed unspent | "Great saving today" + coin burst |
+| `good` | Some money stayed unspent | "You saved today" + coin burst |
+| `used` | Exactly the full budget was spent | "Right on budget" + soft cloud |
+| `over` | More than the budget was spent | "A little over budget" + soft cloud |
+| `empty` | No budget and no spending | "No budget today" |
+
+- `POST /api/checkins` upserts one row per household per day, accepts today and the previous 30 days, and rejects future dates, invalid dates, negative amounts, and amounts above the Rs 1 trillion input cap.
+- The server snapshots that day's safe-to-spend (`budgetMinor`) when the check-in is saved, so later bill or income edits do not rewrite history. The client never supplies the budget.
+- `GET /api/checkins?days=31` returns recent rows plus today. All reads/writes are scoped to the signed-in household.
+- The last seven days, a cycle net total (`saved` or `over`), and a one-click link to put savings into a goal are shown on the card.
+- This is a habit check-in only: it does not alter bills, balances, or recorded expenses, and the card says so. Record real payments under **Expenses**.
+- Animations live in `components/SavingsAnimation.js` with keyframes in `app/globals.css`; `prefers-reduced-motion` disables them globally.
 
 ## PWA / install
 
@@ -145,8 +164,8 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Rate limiting and plan cache are in-process (not shared across instances). Use Redis for multi-instance deployments.
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
-- Email verification requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent.
-- Automated coverage is 76 unit tests plus a 131-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Email delivery (verification and reset) requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent. Verification is currently optional at login, so missing SMTP does not lock users out.
+- Automated coverage is 88 unit tests plus a 149-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.

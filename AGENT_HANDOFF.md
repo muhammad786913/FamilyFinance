@@ -4,16 +4,16 @@
 
 FamilyFinance is a full-stack household cash-flow planner for Pakistani families (default PKR). It stores real user records, authenticates accounts, and forecasts cash flow with deterministic JavaScript — no AI API and no fabricated results.
 
-## Verified state (2026-11-02)
+## Verified state (2026-11-03)
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 76/76 pass |
-| `npm.cmd run e2e` | 131/131 pass against a running production server |
-| `npm.cmd run verify` | 329/329 assertions pass (count scales with cycle length) |
+| `npm.cmd test` | 88/88 pass |
+| `npm.cmd run e2e` | 149/149 pass against a running production server |
+| `npm.cmd run verify` | 319/319 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
-| Live smoke test | signup → "check your email" → unverified login blocked → verified login → seven-step selection-first onboarding with live preview → dashboard; login routing, signed-in home gate, and income create/duplicate/refresh checked in a browser |
+| Live smoke test | login → seven-step selection-first onboarding with live preview → dashboard; daily saving card logged Rs 10 (happy coin animation), Rs 100 (sad cloud), then Rs 0 (100% saved); signed-in home gate checked in a browser |
 | Node / npm | v24.19.0 / 11.17.0 |
 | MongoDB | 9.0, local `mongodb://127.0.0.1:27017/familyfinance` |
 | Git | check `git log -1 --oneline` for the current commit |
@@ -78,7 +78,7 @@ Flow:
 - `lib/issueVerification.js` creates a 256-bit random token, stores only its SHA-256 hash, expires it after 24 hours, and retires older unused tokens.
 - `models/EmailVerification.js`: `userId`, `tokenHash` (unique), `expiresAt` (TTL index), `usedAt`.
 - `app/api/auth/verify-email/route.js` rejects missing/unknown/expired/reused tokens, marks the token used, retires other links, and sets `emailVerifiedAt`.
-- `lib/authOptions.js` throws `EmailNotVerified` when the password is correct but the account is unverified. Login is therefore blocked server-side, not only in the UI.
+- `lib/authOptions.js` currently treats email verification as **optional**: verification tokens are still issued and validated, but a correct password can sign in without `emailVerifiedAt`. The earlier hard block (`EmailNotVerified`) was removed in commit `25bb5d4`. Re-add that check inside `authorize` if verification must be mandatory.
 - `app/api/auth/resend-verification/route.js`: 3 requests / 10 min per IP, 1 / min per address, honeypot, generic response for unknown addresses, and an honest `503` when SMTP is absent.
 - `lib/mail.js` owns SMTP configuration and Nodemailer delivery for both verification and password reset.
 - `app/verify-email/page.js` auto-verifies from `?token=`, handles expired/invalid links, and offers resend.
@@ -112,6 +112,24 @@ Behaviour:
 - After login, `/onboarding` opens when `household.setupComplete` is false; otherwise the user goes straight to `/dashboard`.
 
 Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, rent 45,000, groceries 22,000, credit-card debt 12,000, emergency-fund goal 300,000 over 12 months (suggested saving 25,000), wedding 200,000 in 6 months, cash 80,000, savings 50,000, reserve 79,000. Confirming created exactly one income, two bills, one debt, one goal, and one event (plus the hidden recurring templates), set `setupComplete: true`, and opened a dashboard built from those numbers.
+
+### 3b. Daily saving tracker
+
+The dashboard now opens with a "Today's saving" card that turns the planner's safe-to-spend amount into a daily habit:
+
+- The person logs **non-essential spending** for today (amount field plus Rs 0 / 500 / 1,000 / 2,000 presets). Blank means Rs 0.
+- `POST /api/checkins` stores one row per household per day (`models/DailyCheckin.js`): `budgetMinor` snapshot, `spentMinor`, optional note. It upserts, so re-submitting the same day updates instead of duplicating.
+- The budget snapshot is computed server-side from the cycle that contains that date (`monthBounds` → `loadPlanInput` → `runPlan`), not trusted from the client. This keeps history honest if bills or income change later.
+- Backfill is limited to today and the previous 30 days; future dates, impossible calendar dates, negative amounts, and amounts above the Rs 1 trillion input cap are rejected with `400`.
+- `GET /api/checkins?days=31` returns recent rows plus the household's `today`. Queries and upserts are scoped to the membership's household; another household sees nothing.
+- `lib/dailySavings.js` is pure integer math:
+  - `daySaving` → `great` (at least half the budget stayed unspent), `good` (some money saved), `used` (exactly the full budget), `over` (overspent), `empty` (no budget and no spend).
+  - `summarizeSaving` counts only checked-in days and reports tracked days, saved days, net saved/over, and the best day.
+  - `recentDays` joins the last seven plan days to check-ins and marks days that were never logged.
+- Feedback text states the saved/over amount and percentage, the 7-day bar strip is labelled, and "This cycle" nets only checked-in days. The card explicitly says it is a habit check-in and does **not** change bills or balances; real payments belong under Expenses.
+- `components/SavingsAnimation.js` is decorative only: eight cyan coins burst when money was saved, and a soft-blue cloud with drops drifts in when the full budget was used or exceeded. `prefers-reduced-motion` disables every animation globally.
+- `tests/dailySavings.test.js` covers every rating, zero budgets, snapshot-vs-plan fallback, ignored unlogged days, negative cycle totals, invalid/unsafe inputs, safe-integer overflow, and the seven-day window.
+- `scripts/e2e.js` covers the empty list, today's snapshot, same-day upsert, backfill, future/stale/invalid/negative/over-cap rejection, the exact Rs 1 trillion boundary, auth, and cross-household isolation.
 
 ### 4. Security and abuse hardening
 
@@ -156,12 +174,12 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 ## Implemented features
 
 - Auth: signup, login, logout, password reset (SMTP-dependent), rate-limited credentials login
-- Email verification: hashed one-time tokens (24h), server-side unverified-login block, rate-limited resend, honest delivery failures, legacy backfill
+- Email verification: hashed one-time tokens (24h), rate-limited resend, honest delivery failures, legacy backfill; verification is currently optional at login (commit `25bb5d4`)
 - Household onboarding: seven selection-first steps (city/income/bill/goal/event presets, chips, steppers), conditional questions, skip where safe, live monthly preview, `setupComplete`; login lands on onboarding until it is complete
 - Household settings: members, city, timezone, planning start day, opening/savings/emergency balances
 - Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export; newest-first with immediate post-save visibility
 - Repeating income/bills: hidden schedule template + visible occurrences, propagation, series deletion
-- Dashboard: health score, 14-day agenda, cash timeline, category split, six-cycle trend, runway, savings goals; empty states link to onboarding/income/bills and no demo seeding
+- Dashboard: daily saving check-in with feedback and celebration, health score, 14-day agenda, cash timeline, category split, six-cycle trend, runway, savings goals; empty states link to onboarding/income/bills and no demo seeding
 - Planning engine: daily/weekly/monthly cash flow, shortages, missed essentials, safe-to-spend, explanations
 - Goals, special events with affordability verdicts, what-if simulator with saved/replayable scenarios
 - Survival budget with city estimates and explanations
@@ -184,16 +202,17 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 7. **Health check could lie.** Readiness used to trust a cached Mongoose handle. `connectDb` rebuilds a stale handle and `/api/health/ready` performs an actual `ping()`.
 8. **Income reset threw after await.** `event.currentTarget` was read after the request resolved; capture the form element first.
 9. **New records were hidden by filters/pages.** Reset to page 1, clear filters, and sort newest-first after create.
-10. **Unverified accounts could log in.** Verification is enforced inside `authorize`, not only in the UI.
+10. **Email verification policy changed (current: optional).** The `authorize` check that threw `EmailNotVerified` was removed in commit `25bb5d4`, and the E2E expectation was updated to match. Tokens are still issued and validated; re-add the check if mandatory verification is required.
 
 ## Test layout and coverage
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
-- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`
+- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`, `tests/dailySavings.test.js`
 - `tests/calculation-properties.test.js` runs seeded random previews and monthly plans across the full allowed input range, checking exact paisa totals, every plan identity, the daily balance chain, and a 31-day daily-wage month at the cap.
 - `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
 - `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
-- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, unverified-login blocking, verification token lifecycle (unknown/expired/valid/reuse), login after verification, onboarding, recurring income/expense, payments, plan/insights/reports, goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
+- `tests/dailySavings.test.js` covers all five ratings, zero budgets, the stored-budget snapshot, unlogged days, net-negative cycles, invalid/unsafe inputs, overflow, and the seven-day window.
+- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, optional unverified login, verification token lifecycle (unknown/expired/valid/reuse), login after verification, onboarding, recurring income/expense, payments, plan/insights/reports, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
 - Test harnesses use a separate simulated IP per client so one bucket is not exhausted; verification tests use test-only DB helpers (`markVerified`, `seedVerifyToken`) against the local MongoDB.
 - `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget.
 
@@ -201,8 +220,8 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 
 - Login/logout with the showcase account.
 - Income: created via the form, saw the success notice and the row at the top, repeat submit showed the idempotent “already existed, so it was not duplicated” notice, full reload kept the row.
-- Signup: honest “check your email” state with SMTP missing; unverified login shown the verification message and resend link.
-- After marking the test account verified in the local DB, login worked.
+- Signup: honest “check your email” state with SMTP missing; unverified login is currently allowed because verification is optional.
+- Daily saving: logged Rs 10 against Rs 34.48 safe-to-spend → “Great saving today”, 8-coin burst, 7-day bar, and cycle total updated without reload; logged Rs 100 → “A little over budget” with cloud and drops; logged Rs 0 → 100% saved and coins again.
 - Onboarding: all seven steps, conditional school fees, debt/goal/event branches, preset selections, suggestion button, preview math, confirm, dashboard; a fresh signup was routed to onboarding and a completed account to the dashboard.
 - Public home: signed out shows the labelled example month; after login the same page shows "You are signed in" and workspace links, with no example figures.
 - Verified onboarding results directly in MongoDB: `setupComplete: true`, one income, two bills, one debt, one goal, one event, members, balances, and reserve preserved (plus the hidden recurring templates).
@@ -214,7 +233,7 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 ## Known limitations (honest)
 
 - Rate limits and plan cache are per-process. Use Redis for multiple instances; the in-process limiter is not a distributed defense.
-- Email delivery (verification and reset) requires SMTP. Without it the UI reports that delivery is not configured. No 2FA yet.
+- Email delivery (verification and reset) requires SMTP. Without it the UI reports that delivery is not configured. Verification is optional at login in the current build; no 2FA yet.
 - Verification/reset links depend on a correct `APP_URL`/`NEXTAUTH_URL`.
 - Onboarding uses separate writes for household, income, bills, debt, goal, event, and final balances. In-session retry flags skip already-created items, but a reload/crash mid-confirm can leave a partial plan; there is no MongoDB transaction.
 - Household deletion and recurring-occurrence generation are also not transactional.
@@ -232,7 +251,7 @@ Verified in a browser end-to-end: Karachi, two adults, salary 150,000/month, ren
 
 - Use HTTPS URLs in `NEXTAUTH_URL`/`APP_URL`; do not hardcode the `__Secure-` cookie prefix.
 - Run `npm run repair` once on a database created before the partial occurrence index, then `npm run indexes`.
-- Run `npm run verify-backfill` once after deploying email verification to avoid locking out pre-existing accounts.
+- Run `npm run verify-backfill` once after deploying if existing accounts should be marked verified; it is not required for sign-in while verification is optional.
 - Configure SMTP before advertising email verification or password reset.
 - Ensure MongoDB backups (`mongodump`/Atlas) and verify restores.
 - `ALLOW_INDEXING=true` only on the public production host.

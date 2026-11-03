@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Empty, ProgressBar } from "@/components/ui";
+import { DailySavingsCard } from "@/components/DailySavingsCard";
 import { api, formatMoney } from "@/lib/format";
 
 const BAND_STYLE = {
@@ -134,25 +135,37 @@ export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [household, setHousehold] = useState(null);
   const [goals, setGoals] = useState([]);
+  const [checkins, setCheckins] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [insights, home, goalList] = await Promise.all([
+      const [insights, home, goalList, checkinList] = await Promise.all([
         api("/api/insights"),
         api("/api/household"),
         api("/api/goals"),
+        api("/api/checkins?days=31"),
       ]);
       setData(insights);
       setHousehold(home.household);
       setGoals(Array.isArray(goalList?.items) ? goalList.items : []);
+      setCheckins(Array.isArray(checkinList?.items) ? checkinList.items : []);
       setError("");
     } catch (err) {
       setError(err.message);
     }
   }, []);
+
+  function handleCheckinSaved(item) {
+    if (!item?.date) return;
+    setCheckins((rows) => {
+      const next = rows.filter((row) => row.date !== item.date);
+      next.push(item);
+      return next.sort((a, b) => a.date.localeCompare(b.date));
+    });
+  }
 
   useEffect(() => {
     load();
@@ -318,6 +331,14 @@ export default function DashboardPage() {
           <p className="text-xs text-navy/75">From today until the projection goes below zero</p>
         </Card>
       </div>
+
+      <DailySavingsCard
+        today={today}
+        todayRow={todayRow}
+        checkins={checkins}
+        planDaily={plan.daily}
+        onSaved={handleCheckinSaved}
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
