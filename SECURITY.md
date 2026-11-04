@@ -9,7 +9,7 @@ FamilyFinance stores household money records, so the default posture is "private
 | Pages | Every private page is gated by `next-auth/middleware`; the E2E suite asserts an anonymous `/dashboard` redirects. |
 | Sessions | NextAuth JWT (7 days), `HttpOnly` + `SameSite=Lax`; `__Secure-` prefix is automatic on HTTPS. |
 | Login | Per-email limit (10/min) + escalating ban, per-IP auth budget, bcrypt cost 12, constant-time-ish dummy compare for unknown accounts, no user enumeration. |
-| Signup / reset / verify | Per-IP limits, honeypot fields, generic error text, rate-limited resend. Reset tokens and email-verification tokens are SHA-256 hashed; reset tokens expire in 1h, verification links in 24h, and both are retired after use. New accounts cannot log in until verified (server-side check). Passwords must be 8-72 bytes, are rejected when common, repeated, or equal to the email, and are capped because bcrypt ignores bytes past 72. |
+| Signup / reset / verify | Per-IP limits, honeypot fields, generic error text, rate-limited resend. Reset tokens and email-verification tokens are SHA-256 hashed; reset tokens expire in 1h, verification links in 24h, and both are retired after use. Verification is optional at login, and signup signs the new account in automatically so setup never depends on email delivery. Passwords must be 8-72 bytes, are rejected when common, repeated, or equal to the email, and are capped because bcrypt ignores bytes past 72. |
 | Writes | Same-origin `Origin`/`Sec-Fetch-Site` check, JSON-only bodies (except NextAuth form posts), 64 KB body cap. |
 | Bots / scanners | Blocklist for `/.env`, `/.git`, `/wp-admin`, `/phpmyadmin`, `*.php|sql|bak`, etc. → 404 without touching the app. Non-standard methods (TRACE/TRACK/CONNECT) are rejected; Next's edge runtime refuses TRACE before it reaches the handler, so it is never served. |
 | Floods | Per-IP sliding windows: auth 20/min, anonymous API 120/min, signed-in API 600/min per account, pages 240/min, plus a 1500/min per-IP API ceiling; repeat offenders are banned for 30-60 s and the ban doubles on each repeat, capped at 15 min so a shared NAT is not locked out for hours. |
@@ -32,7 +32,7 @@ FamilyFinance stores household money records, so the default posture is "private
 - No CAPTCHA or WAF. Honeypot + limits + origin checks stop naive bots and credential stuffing, not a determined distributed attacker.
 - Rate limits are in-memory: a restart clears them, and multiple instances do not share them.
 - CSP allows `'unsafe-inline'` scripts because Next.js injects hydration bootstrap inline. A nonce-based CSP is future work.
-- Email verification is implemented (hashed one-time tokens, 24h expiry, server-side login block, rate-limited resend), but delivery depends on SMTP. No 2FA yet.
+- Email verification is implemented (hashed one-time tokens, 24h expiry, rate-limited resend), but verification is optional at login and delivery depends on SMTP. No 2FA yet.
 - Audit log rows are ordinary Mongo documents (not append-only / externally signed).
 - The bundled k6 script covers public routes only; no sustained attack simulation has been run.
 

@@ -9,7 +9,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 | Check | Result |
 | --- | --- |
 | `npm.cmd test` | 88/88 pass |
-| `npm.cmd run e2e` | 149/149 pass against a running production server |
+| `npm.cmd run e2e` | 150/150 pass against a running production server |
 | `npm.cmd run verify` | 319/319 assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
@@ -83,7 +83,8 @@ Flow:
 - `lib/mail.js` owns SMTP configuration and Nodemailer delivery for both verification and password reset.
 - `app/verify-email/page.js` auto-verifies from `?token=`, handles expired/invalid links, and offers resend.
 - `app/login/page.js` shows “Verify your email” plus a resend link for `EmailNotVerified`.
-- `app/signup/page.js` shows a “Check your email” state only when delivery actually succeeded; otherwise it states that delivery is not configured.
+- `app/signup/page.js` signs the new account in automatically and routes to `/onboarding`; verification stays optional, so a missing email never blocks setup. If auto sign-in ever fails, a fallback screen links to log in with the same credentials.
+- `app/api/auth/signup/route.js` returns `verificationRequired: false` and a startable-account message, so the client never promises an inbox that will not arrive.
 
 Migration: `scripts/backfill-email-verified.js` (`npm run verify-backfill`) marks pre-verification accounts as verified once. Already run locally (69 accounts). New signups are unaffected.
 
@@ -104,6 +105,7 @@ Limitation: without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but verification/re
 Behaviour:
 
 - Progress rail with reachable steps, step counter, Back/Continue, "Skip this" on optional steps, inline validation, and a sticky live monthly preview.
+- Mobile layout (only onboarding; other screens untouched): the step-chip list and "About 2 minutes" badge hide below `sm`, side padding is reclaimed on small screens, inputs/selects use 16px text to stop iOS zoom, tap targets are at least 44px, vertical gaps are wider, the bill amount/due-day pair stacks on small screens, and footer actions go full width.
 - Never re-asks signup data; the household name is prefilled from signup.
 - Conditional content: school fees only when children > 0; debt/goal/event details only after "Yes".
 - `lib/onboardingPlan.js` is pure and frequency-aware (weekly/daily/yearly → monthly, integer minor units). It only uses typed values; blank fields stay zero, and the preview says so. Conversions use exact integer math, and per-field amounts are capped at Rs 1 trillion so every allowed combination stays inside the safe-integer range.

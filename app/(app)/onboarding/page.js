@@ -184,7 +184,7 @@ function ChoiceChip({ active, onClick, children }) {
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan ${
+      className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan ${
         active ? "border-cyan bg-cyan text-white" : "border-soft bg-white text-navy hover:border-cyan hover:bg-powder"
       }`}
     >
@@ -199,7 +199,7 @@ function Tile({ active, onClick, icon, title, hint }) {
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan ${
+      className={`flex items-start gap-3 rounded-xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan ${
         active ? "border-cyan bg-powder ring-1 ring-cyan" : "border-soft bg-white hover:border-cyan hover:bg-[#F7FAFD]"
       }`}
     >
@@ -221,7 +221,7 @@ function Tile({ active, onClick, icon, title, hint }) {
 function Stepper({ label, hint, value, onChange, min = 0, max = 20 }) {
   const n = Math.max(min, Math.min(max, Number(value) || 0));
   return (
-    <div className="rounded-xl border border-soft bg-white p-3">
+    <div className="rounded-xl border border-soft bg-white p-3.5">
       <p className="text-sm font-medium">{label}</p>
       {hint ? <p className="text-xs text-navy/70">{hint}</p> : null}
       <div className="mt-2 flex items-center gap-2">
@@ -230,7 +230,7 @@ function Stepper({ label, hint, value, onChange, min = 0, max = 20 }) {
           aria-label={`One fewer ${label}`}
           onClick={() => onChange(String(Math.max(min, n - 1)))}
           disabled={n <= min}
-          className="grid h-10 w-10 place-items-center rounded-lg border border-soft text-lg font-semibold hover:bg-powder disabled:opacity-40"
+          className="grid h-11 w-11 place-items-center rounded-lg border border-soft text-lg font-semibold hover:bg-powder disabled:opacity-40"
         >
           −
         </button>
@@ -242,7 +242,7 @@ function Stepper({ label, hint, value, onChange, min = 0, max = 20 }) {
           aria-label={`One more ${label}`}
           onClick={() => onChange(String(Math.min(max, n + 1)))}
           disabled={n >= max}
-          className="grid h-10 w-10 place-items-center rounded-lg border border-soft text-lg font-semibold hover:bg-powder disabled:opacity-40"
+          className="grid h-11 w-11 place-items-center rounded-lg border border-soft text-lg font-semibold hover:bg-powder disabled:opacity-40"
         >
           +
         </button>
@@ -660,22 +660,22 @@ export default function OnboardingPage() {
   const skippable = step >= 1 && step <= 5;
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+    <div className="mx-auto grid max-w-5xl gap-6 max-sm:-mx-1 max-sm:[&_input]:text-base max-sm:[&_select]:text-base lg:grid-cols-[minmax(0,1fr)_19rem]">
       <div className="min-w-0">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-navy/70">
               Step {step + 1} of {STEPS.length}
             </p>
             <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">{STEPS[step].hint}</h1>
           </div>
-          <p className="inline-flex items-center gap-2 rounded-full bg-powder px-3 py-1 text-xs font-semibold">
+          <p className="hidden items-center gap-2 rounded-full bg-powder px-3 py-1 text-xs font-semibold sm:inline-flex">
             <NavIcon name="spark" className="h-4 w-4 text-cyan" />
             About 2 minutes
           </p>
         </div>
 
-        <ol className="mb-4 flex flex-wrap gap-1.5" aria-label="Setup steps">
+        <ol className="mb-4 hidden flex-wrap gap-1.5 sm:flex" aria-label="Setup steps">
           {STEPS.map((item, index) => {
             const done = index < step || index <= maxStep;
             const current = index === step;
@@ -710,13 +710,13 @@ export default function OnboardingPage() {
           })}
         </ol>
 
-        <div className="h-1.5 overflow-hidden rounded-full bg-powder" aria-hidden="true">
+        <div className="h-2 overflow-hidden rounded-full bg-powder" aria-hidden="true">
           <div className="h-full rounded-full bg-cyan transition-all" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
         </div>
 
-        <Card className="mt-4">
+        <Card className="mt-5 max-sm:p-4">
           {step === 0 && (
-            <div className="grid gap-5">
+            <div className="grid gap-6">
               <Field label="Household name" htmlFor="name" hint="We suggested one from your signup — keep it or rename it.">
                 <Input
                   id="name"
@@ -770,7 +770,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 1 && (
-            <div className="grid gap-5">
+            <div className="grid gap-6">
               <div>
                 <p className="text-sm font-medium">Where does most of your money come from?</p>
                 <p className="text-xs text-navy/70">Pick one — you can add more later.</p>
@@ -847,7 +847,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 2 && (
-            <div className="grid gap-4">
+            <div className="grid gap-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-navy/75">Tap a bill to include it, then enter the monthly amount.</p>
                 <div className="flex gap-2">
@@ -917,7 +917,7 @@ export default function OnboardingPage() {
                         </span>
                       </button>
                       {entry.on ? (
-                        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+                        <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem]">
                           <div>
                             <label className="text-xs font-medium" htmlFor={`bill-amount-${bill.key}`}>
                               Monthly amount (PKR)
@@ -965,7 +965,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 3 && (
-            <div className="grid gap-4">
+            <div className="grid gap-5">
               <div className="grid gap-2 sm:grid-cols-2">
                 <Tile
                   active={data.hasDebt === true}
@@ -1020,7 +1020,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 4 && (
-            <div className="grid gap-4">
+            <div className="grid gap-5">
               <div className="grid gap-2 sm:grid-cols-2">
                 <Tile
                   active={data.hasGoal === true}
@@ -1134,7 +1134,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 5 && (
-            <div className="grid gap-4">
+            <div className="grid gap-5">
               <div className="grid gap-2 sm:grid-cols-2">
                 <Tile
                   active={data.hasEvent === true}
@@ -1223,7 +1223,7 @@ export default function OnboardingPage() {
           )}
 
           {step === 6 && (
-            <div className="grid gap-5">
+            <div className="grid gap-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-xl border border-soft bg-white p-3">
                   <p className="mb-1 text-sm font-semibold">Your setup</p>
@@ -1416,23 +1416,23 @@ export default function OnboardingPage() {
             </p>
           ) : null}
 
-          <div className="mt-5 flex flex-wrap items-center gap-2">
+          <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
             {step > 0 ? (
-              <Button type="button" variant="secondary" onClick={back} disabled={busy}>
+              <Button className="max-sm:w-full" type="button" variant="secondary" onClick={back} disabled={busy}>
                 Back
               </Button>
             ) : null}
             {step < STEPS.length - 1 ? (
-              <Button type="button" onClick={next} disabled={busy}>
+              <Button className="max-sm:w-full" type="button" onClick={next} disabled={busy}>
                 {step === 0 ? "Start my plan" : "Continue"}
               </Button>
             ) : (
-              <Button type="button" onClick={finish} disabled={busy}>
+              <Button className="max-sm:w-full" type="button" onClick={finish} disabled={busy}>
                 {busy ? "Building your month…" : "Confirm and open dashboard"}
               </Button>
             )}
             {skippable ? (
-              <button className="text-sm font-medium text-navy/70 underline underline-offset-2" type="button" onClick={skip} disabled={busy}>
+              <button className="min-h-11 text-sm font-medium text-navy/70 underline underline-offset-2 max-sm:w-full" type="button" onClick={skip} disabled={busy}>
                 Skip this
               </button>
             ) : null}

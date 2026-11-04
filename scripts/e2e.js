@@ -211,7 +211,8 @@ function makeClient(ip = E2E_CLIENT_IP) {
   check("signup rejects malformed email", badEmail.status === 400, badEmail.data);
   const signupA = await A.signup("Ayesha Khan", aEmail, password);
   check("signup A returns 201", signupA.status === 201, signupA.data);
-  check("signup requires email verification", signupA.data?.verificationRequired === true, signupA.data);
+  check("signup does not require email verification", signupA.data?.verificationRequired === false, signupA.data);
+  check("signup reports a startable account", /start right away|optional/i.test(String(signupA.data?.message || "")), signupA.data?.message);
   const unverifiedLogin = await A.login(aEmail, password);
   check("unverified login allowed because verification is optional", unverifiedLogin === 200, unverifiedLogin);
   await markVerified(aEmail);

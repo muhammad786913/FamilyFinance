@@ -4,7 +4,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 
 ## Features
 
-- Sign up, log in, logout, email verification, optional password reset (only if SMTP is configured)
+- Sign up (with automatic sign-in straight into setup), log in, logout, optional email verification, optional password reset (only if SMTP is configured)
 - Household onboarding (seven selection-first steps with conditional questions and a live monthly preview) and settings (currency, timezone, planning month, members); login lands on onboarding until setup is complete
 - Income and expense CRUD with edit forms, partial payments, status/category filters, pagination
 - Repeating income/bills: one payable occurrence at a time, edits propagate to unpaid future cycles, deleting a row removes the series
@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, email-verification design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **88 unit tests**, **149 E2E checks**, **319 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **88 unit tests**, **150 E2E checks**, **319 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -61,7 +61,7 @@ For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another termin
 
 ## Email verification
 
-New accounts are created unverified (`emailVerifiedAt: null`); tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. In the current build email verification is **optional**: a correct password can sign in before the link is opened, while the verification flow and resend limits still work. To require verification, re-add the `EmailNotVerified` check inside `authorize` in `lib/authOptions.js`. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are marked as verified.
+New accounts are created unverified (`emailVerifiedAt: null`); tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. In the current build email verification is **optional**: a correct password can sign in before the link is opened, while the verification flow and resend limits still work. Signup also signs the new account in automatically and sends the person straight to onboarding, so a missing email never strands them at a "check your inbox" screen. To require verification, re-add the `EmailNotVerified` check inside `authorize` in `lib/authOptions.js`. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are marked as verified.
 
 ## Repeating records
 
@@ -165,7 +165,7 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Email delivery (verification and reset) requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent. Verification is currently optional at login, so missing SMTP does not lock users out.
-- Automated coverage is 88 unit tests plus a 149-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 88 unit tests plus a 150-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.

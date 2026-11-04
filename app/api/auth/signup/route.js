@@ -31,16 +31,18 @@ export async function POST(req) {
     const household = await Household.create({ name: `${name}'s household` });
     await Membership.create({ userId: user._id, householdId: household._id, role: "owner" });
     let delivered = false;
-    let message = "Account created. We could not send the verification email yet — try “Resend verification email” shortly.";
+    // Verification stays available but is optional at login. The API response
+    // says so explicitly so the client never blocks a new account on email.
+    let message = "Account created. You can start right away.";
     try {
       await issueVerification(user);
       delivered = true;
-      message = "Account created. Check your inbox and open the verification link before logging in.";
+      message = "Account created. A verification email was also sent, but verifying is optional.";
     } catch (err) {
       if (err.status !== 503) console.error("verification email failed", err);
-      else message = `Account created, but ${err.message}`;
+      else message = "Account created. You can start right away — email delivery is not configured.";
     }
-    return json({ ok: true, verificationRequired: true, delivered, message }, 201);
+    return json({ ok: true, verificationRequired: false, delivered, message }, 201);
   } catch (err) {
     if (err.code === 11000) return json({ error: "Could not create account." }, 400);
     return handle(err);
