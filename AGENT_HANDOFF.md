@@ -125,6 +125,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 - The budget snapshot is computed server-side from the cycle that contains that date (`monthBounds` → `loadPlanInput` → `runPlan`), not trusted from the client. This keeps history honest if bills or income change later.
 - Backfill is limited to today and the previous 30 days; future dates, impossible calendar dates, negative amounts, and amounts above the Rs 1 trillion input cap are rejected with `400`.
 - `GET /api/checkins?days=31` returns recent rows plus the household's `today`. Queries and upserts are scoped to the membership's household; another household sees nothing.
+- A zero **suggested spend** is explained instead of left as a bare `Rs 0`. The engine adds `suggestedBlocker` (`no_cash`, `reserve`, `essentials`, `too_small`), `upcomingEssentialsMinor`, `availableAfterReserveMinor`, and `suggestedSpanDays` to each daily row. `lib/suggestedSpend.js` turns the blocker into one sentence; the dashboard card and plan page show it, and the plan page lists confirmed cash, reserve, upcoming essentials, and the safe pool with links to record received income or change opening cash/reserve.
 - `lib/dailySavings.js` is pure integer math:
   - `daySaving` → `great` (at least half the budget stayed unspent), `good` (some money saved), `used` (exactly the full budget), `over` (overspent), `empty` (no budget and no spend).
   - `summarizeSaving` counts only checked-in days and reports tracked days, saved days, net saved/over, and the best day.

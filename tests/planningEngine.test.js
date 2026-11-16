@@ -102,6 +102,57 @@ test("actual spending changes remaining forecast", () => {
   assert.notEqual(unpaid.totals.endingConfirmedMinor, paid.totals.endingConfirmedMinor);
 });
 
+test("a zero suggested spend reports why it is zero", () => {
+  const noCash = runPlan({
+    ...base,
+    startingBalanceMinor: 0,
+    emergencyReserveMinor: 0,
+    incomes: [],
+    expenses: [],
+  });
+  assert.equal(noCash.daily[0].suggestedDiscretionaryMinor, 0);
+  assert.equal(noCash.daily[0].suggestedBlocker, "no_cash");
+
+  const reserve = runPlan({
+    ...base,
+    startingBalanceMinor: 50000,
+    emergencyReserveMinor: 100000,
+    incomes: [],
+    expenses: [],
+  });
+  assert.equal(reserve.daily[0].suggestedBlocker, "reserve");
+
+  const essentials = runPlan({
+    ...base,
+    startingBalanceMinor: 500000,
+    emergencyReserveMinor: 0,
+    incomes: [],
+    expenses: [
+      { id: "r", name: "Rent", amountMinor: 500000, paidMinor: 0, dueDate: "2026-10-05", essential: true, status: "unpaid" },
+    ],
+  });
+  assert.equal(essentials.daily[0].suggestedBlocker, "essentials");
+
+  const tooSmall = runPlan({
+    ...base,
+    startingBalanceMinor: 10,
+    emergencyReserveMinor: 0,
+    incomes: [],
+    expenses: [],
+  });
+  assert.equal(tooSmall.daily[0].suggestedBlocker, "too_small");
+
+  const positive = runPlan({
+    ...base,
+    startingBalanceMinor: 310000,
+    emergencyReserveMinor: 0,
+    incomes: [],
+    expenses: [],
+  });
+  assert.ok(positive.daily[0].suggestedDiscretionaryMinor > 0);
+  assert.equal(positive.daily[0].suggestedBlocker, null);
+});
+
 test("scenario isolation does not mutate baseline inputs", () => {
   const incomes = [{ id: "s", name: "Salary", amountMinor: 500000, receivedMinor: 0, expectedDate: "2026-10-05", status: "expected" }];
   const input = { ...base, incomes, expenses: [] };

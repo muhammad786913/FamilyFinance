@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Empty, ProgressBar } from "@/components/ui";
 import { DailySavingsCard } from "@/components/DailySavingsCard";
 import { api, formatMoney } from "@/lib/format";
+import { suggestedSpendHint } from "@/lib/suggestedSpend";
 
 const BAND_STYLE = {
   strong: { ring: "#00A6D6", text: "text-cyan" },
@@ -195,6 +196,7 @@ export default function DashboardPage() {
   if (!data) return <p role="status">Loading dashboard…</p>;
 
   const { plan, survival, health, agenda, runway, todayRow, trend, categories, today } = data;
+  const spendHint = suggestedSpendHint(todayRow);
   const isDemo = !!household?.demoSeededAt;
   const hasRecords = plan.daily.some((d) => d.events.length > 0);
   const topCategories = Object.entries(categories || {})
@@ -323,7 +325,19 @@ export default function DashboardPage() {
         <Card>
           <p className="text-sm">Safe to spend today</p>
           <p className="mt-1 text-2xl font-semibold text-cyan">{formatMoney(todayRow?.suggestedDiscretionaryMinor ?? 0)}</p>
-          <p className="text-xs text-navy/75">After reserve and essentials until next confirmed income</p>
+          <p className={`text-xs ${spendHint ? "text-[#7A5C15]" : "text-navy/75"}`}>
+            {spendHint || "After reserve and essentials until next confirmed income"}
+          </p>
+          {spendHint ? (
+            <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <Link className="font-semibold text-cyan" href="/income">
+                Record income
+              </Link>
+              <Link className="font-semibold text-cyan" href="/settings">
+                Adjust cash &amp; reserve
+              </Link>
+            </p>
+          ) : null}
         </Card>
         <Card>
           <p className="text-sm">Days of positive runway</p>

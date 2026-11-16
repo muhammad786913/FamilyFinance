@@ -7,6 +7,7 @@ import { SavingsAnimation } from "@/components/SavingsAnimation";
 import { api, formatMoney } from "@/lib/format";
 import moneyModule from "@/lib/money";
 import { daySaving, recentDays, summarizeSaving } from "@/lib/dailySavings";
+import { suggestedSpendHint } from "@/lib/suggestedSpend";
 
 const MAX_AMOUNT = moneyModule.MAX_INPUT_MAJOR;
 const PRESETS = [0, 500, 1000, 2000];
@@ -23,14 +24,14 @@ function weekday(ymd) {
   return new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-PK", { weekday: "short", timeZone: "UTC" });
 }
 
-function resultMessage(result) {
+function resultMessage(result, zeroHint = "") {
   if (result.status === "great") return `${result.savedPct}% of today's safe-to-spend budget stayed unspent.`;
   if (result.status === "good") return `You kept ${formatMoney(result.savedMinor)} inside today's budget.`;
   if (result.status === "used") return "You used the full safe-to-spend amount — nothing extra, nothing left.";
   if (result.status === "over") {
     return `You spent ${formatMoney(Math.abs(result.savedMinor))} more than today's safe-to-spend amount.`;
   }
-  return "Your safe-to-spend amount is Rs 0 today, so there is no extra room to save.";
+  return `Your safe-to-spend amount is Rs 0 today, so there is no extra room to save.${zeroHint ? ` ${zeroHint}` : ""}`;
 }
 
 export function DailySavingsCard({ today, todayRow, checkins = [], planDaily = [], onSaved }) {
@@ -50,6 +51,7 @@ export function DailySavingsCard({ today, todayRow, checkins = [], planDaily = [
   const planBudgetMinor = todayRow?.date === today ? Math.max(0, Number(todayRow.suggestedDiscretionaryMinor) || 0) : 0;
   const budgetMinor =
     todayCheckin && Number.isSafeInteger(todayCheckin.budgetMinor) ? todayCheckin.budgetMinor : planBudgetMinor;
+  const zeroHint = budgetMinor <= 0 ? suggestedSpendHint(todayRow) : "";
   const result = todayCheckin ? daySaving({ budgetMinor, spentMinor: todayCheckin.spentMinor }) : null;
   const summary = summarizeSaving({ daily: planDaily, checkins });
   const recent = recentDays({ daily: planDaily, checkins, today, count: 7 });
@@ -116,12 +118,13 @@ export function DailySavingsCard({ today, todayRow, checkins = [], planDaily = [
 
         {result ? (
           <p className={`mt-3 text-sm font-semibold ${STATUS[result.status]?.tone || "text-navy"}`} aria-live="polite">
-            {STATUS[result.status]?.label}. <span className="font-normal text-navy/80">{resultMessage(result)}</span>
+            {STATUS[result.status]?.label}.{" "}
+            <span className="font-normal text-navy/80">{resultMessage(result, zeroHint)}</span>
           </p>
         ) : (
           <p className="mt-3 text-sm text-navy/75" aria-live="polite">
-            Logging takes a few seconds. The number is compared with today&apos;s safe-to-spend amount, not with your
-            bills.
+            {zeroHint ||
+              "Logging takes a few seconds. The number is compared with today's safe-to-spend amount, not with your bills."}
           </p>
         )}
 

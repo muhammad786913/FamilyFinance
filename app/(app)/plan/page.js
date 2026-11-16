@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert, Badge, Card, PageHeader, ProgressBar, StatCard } from "@/components/ui";
 import { api, formatMoney } from "@/lib/format";
+import { suggestedSpendHint } from "@/lib/suggestedSpend";
 
 function shortDate(ymd) {
   return new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-PK", {
@@ -32,6 +34,7 @@ export default function PlanPage() {
   const { plan } = data;
 
   const todayRow = plan.daily.find((day) => day.date === plan.asOfDate) || plan.daily[0];
+  const spendHint = suggestedSpendHint(todayRow);
   const maxWeekEnd = Math.max(1, ...plan.weeks.map((week) => Math.abs(week.endingProjectedMinor)));
   const incomeDays = plan.daily.filter((day) => day.events.some((event) => event.type === "income"));
   const nextIncome = incomeDays.find((day) => day.date >= plan.asOfDate) || incomeDays[0];
@@ -62,7 +65,8 @@ export default function PlanPage() {
         <StatCard
           label="Suggested spend today"
           value={formatMoney(todayRow?.suggestedDiscretionaryMinor ?? 0)}
-          hint="After reserve and upcoming essentials"
+          hint={spendHint || "After reserve and upcoming essentials"}
+          tone={spendHint ? "warn" : "default"}
         />
         <StatCard
           label="Unpaid bills"
@@ -71,6 +75,38 @@ export default function PlanPage() {
           tone={plan.missedEssentials.length ? "danger" : "default"}
         />
       </div>
+
+      {spendHint ? (
+        <Alert title="Why today's suggested spend is Rs 0" tone="warn">
+          <p className="mt-1">{spendHint}</p>
+          <dl className="mt-3 grid gap-1 text-sm sm:grid-cols-2">
+            <div className="flex justify-between gap-3 sm:justify-start">
+              <dt className="text-navy/75">Confirmed cash today</dt>
+              <dd className="font-semibold">{formatMoney(todayRow?.endingConfirmedMinor ?? plan.startingBalanceMinor)}</dd>
+            </div>
+            <div className="flex justify-between gap-3 sm:justify-start">
+              <dt className="text-navy/75">Emergency reserve</dt>
+              <dd className="font-semibold">{formatMoney(plan.emergencyReserveMinor)}</dd>
+            </div>
+            <div className="flex justify-between gap-3 sm:justify-start">
+              <dt className="text-navy/75">Essentials before next income</dt>
+              <dd className="font-semibold">{formatMoney(todayRow?.upcomingEssentialsMinor ?? 0)}</dd>
+            </div>
+            <div className="flex justify-between gap-3 sm:justify-start">
+              <dt className="text-navy/75">Safe pool left</dt>
+              <dd className="font-semibold">{formatMoney(todayRow?.safePoolMinor ?? 0)}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            <Link className="font-semibold text-cyan" href="/income">
+              Record received income
+            </Link>
+            <Link className="font-semibold text-cyan" href="/settings">
+              Change opening cash or reserve
+            </Link>
+          </p>
+        </Alert>
+      ) : null}
 
       <Alert title="Estimates are labelled">
         Suggested daily spending is an estimate after your emergency reserve and essential bills due before the next
