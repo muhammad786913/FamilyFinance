@@ -12,8 +12,7 @@
     "verify": "node scripts/verify-calc.js",
     "indexes": "node --env-file=.env.local scripts/ensure-indexes.js",
     "icons": "node scripts/generate-icons.js",
-    "repair": "node --env-file=.env.local scripts/repair-recurrence.js",
-    "verify-backfill": "node --env-file=.env.local scripts/backfill-email-verified.js"
+    "repair": "node --env-file=.env.local scripts/repair-recurrence.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

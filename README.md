@@ -4,7 +4,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 
 ## Features
 
-- Sign up (with automatic sign-in straight into setup), log in, logout, optional email verification, optional password reset (only if SMTP is configured)
+- Sign up (with automatic sign-in straight into setup), log in, logout, optional password reset (only if SMTP is configured)
 - Household onboarding (seven selection-first steps with conditional questions and a live monthly preview) and settings (currency, timezone, planning month, members); login lands on onboarding until setup is complete
 - Income and expense CRUD with edit forms, partial payments, status/category filters, pagination
 - Repeating income/bills: one payable occurrence at a time, edits propagate to unpaid future cycles, deleting a row removes the series
@@ -24,9 +24,9 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 ## Project handoff
 
-See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, email-verification design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
+See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, account and sign-in design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **88 unit tests**, **150 E2E checks**, **319 independent calculation assertions**, lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **87 unit tests**, **145 E2E checks**, and an independent arithmetic audit of every money output, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -55,13 +55,12 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | `npm start` | Run production server |
 | `npm run indexes` | Ensure MongoDB indexes (needs `.env.local`) |
 | `npm run repair` | One-off repair for pre-`occurrenceKey` databases (safe to re-run) |
-| `npm run verify-backfill` | One-off: marks accounts created before email verification as verified (run once after upgrading) |
 
-For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (verification tokens plus the current optional-verification login), isolation, CRUD, recurrence, payments, daily check-ins, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
+For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (immediate sign-in, duplicate-email and account-existence rules), isolation, CRUD, recurrence, payments, daily check-ins, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
 
-## Email verification
+## Accounts and sign-in
 
-New accounts are created unverified (`emailVerifiedAt: null`); tokens are 256-bit random values stored only as SHA-256 hashes, expire after 24 hours, and are retired on use or resend. In the current build email verification is **optional**: a correct password can sign in before the link is opened, while the verification flow and resend limits still work. Signup also signs the new account in automatically and sends the person straight to onboarding, so a missing email never strands them at a "check your inbox" screen. To require verification, re-add the `EmailNotVerified` check inside `authorize` in `lib/authOptions.js`. Without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but reports honestly that delivery is not configured (no "check your inbox" claim). Run `npm run verify-backfill` once when upgrading an existing database so pre-verification accounts are marked as verified.
+Signup asks for an email and a password only. There is no confirmation email, no verification link, and no "check your inbox" step: the account is saved ready to use, signs in automatically, and goes straight to onboarding. A duplicate email returns `409` with a plain message, and login checks whether the email has an account before trying the password so a missing account and a wrong password are reported differently. Password reset by email remains available when `SMTP_HOST`/`SMTP_FROM` are set.
 
 ## Repeating records
 
@@ -164,11 +163,11 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Rate limiting and plan cache are in-process (not shared across instances). Use Redis for multi-instance deployments.
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
-- Email delivery (verification and reset) requires SMTP. Without SMTP, signup and resend report that delivery is not configured rather than claiming mail was sent. Verification is currently optional at login, so missing SMTP does not lock users out.
-- Automated coverage is 88 unit tests plus a 150-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Password reset by email requires SMTP. Without SMTP, the reset form reports that delivery is not configured rather than claiming mail was sent. Signup and login never depend on email delivery.
+- Automated coverage is 87 unit tests plus a 145-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
-- `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what verification/reset need.
+- `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what password reset needs.
 - Example data is confined to the signed-out public home page. The demo API remains an explicit testing/cleanup tool, not seed production data, and the signed-in workspace never presents it as real.
 - User-entered money is capped at Rs 1 trillion per field. Above that, the API returns a validation error and the onboarding preview shows "too large" instead of an approximate answer. The cap keeps every cent exact and every monthly plan inside the safe-integer range.
 

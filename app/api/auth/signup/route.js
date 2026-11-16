@@ -27,11 +27,11 @@ export async function POST(req) {
       return json({ error: "This email is already registered. Please log in instead." }, 409);
     }
     const passwordHash = await bcrypt.hash(password, 12);
-    // No email verification step: the account is usable the moment it is saved.
-    const user = await User.create({ email, name, passwordHash, emailVerifiedAt: new Date() });
+    // No confirmation step: the account is usable the moment it is saved.
+    const user = await User.create({ email, name, passwordHash });
     const household = await Household.create({ name: providedName ? `${providedName}'s household` : "My household" });
     await Membership.create({ userId: user._id, householdId: household._id, role: "owner" });
-    return json({ ok: true, verificationRequired: false, message: "Account created. You can start right away." }, 201);
+    return json({ ok: true, message: "Account created. You can start right away." }, 201);
   } catch (err) {
     if (err.code === 11000) {
       return json({ error: "This email is already registered. Please log in instead." }, 409);

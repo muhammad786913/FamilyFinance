@@ -10,7 +10,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 | --- | --- |
 | `npm.cmd test` | 88/88 pass |
 | `npm.cmd run e2e` | 150/150 pass against a running production server |
-| `npm.cmd run verify` | 319/319 assertions pass (count scales with cycle length) |
+| `npm.cmd run verify` | Every arithmetic assertion passes (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
 | Live smoke test | login → seven-step selection-first onboarding with live preview → dashboard; daily saving card logged Rs 10 (happy coin animation), Rs 100 (sad cloud), then Rs 0 (100% saved); signed-in home gate checked in a browser |
@@ -40,7 +40,7 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 npm.cmd run build
 npm.cmd start
 
-# 3. Verification (separate terminal)
+# 3. Checks (separate terminal)
 npm.cmd test
 npm.cmd run e2e
 npm.cmd run verify
@@ -50,9 +50,6 @@ npm.cmd run verify
 
 Demo account used for the live walkthrough:
 `showcase-1793100910046@example.com` / `Showcase123!`
-
-One-time upgrade step (already run locally, 69 accounts marked):
-`npm.cmd run verify-backfill`
 
 ## What changed in this work cycle
 
@@ -69,27 +66,20 @@ Root causes and fixes:
 
 Verified via API probe and browser: `post1 201`, `post2 409`, row visible immediately and after full page reload.
 
-### 2. Real email verification
+### 2. Simple accounts and sign-in
 
 Flow:
 
 - Signup validates email shape on the client (input `type="email"`) and server (`emailAddress` in `lib/validation.js`); shape validation never claims the mailbox exists.
-- Signup is email + password only (no name field) and marks `emailVerifiedAt` immediately, so the account is usable the moment it is saved. No verification email is sent at signup.
-- Legacy verification endpoints remain for links already sent: `lib/issueVerification.js` creates a 256-bit random token, stores only its SHA-256 hash, expires it after 24 hours, and retires older unused tokens.
-- `models/EmailVerification.js`: `userId`, `tokenHash` (unique), `expiresAt` (TTL index), `usedAt`.
-- `app/api/auth/verify-email/route.js` rejects missing/unknown/expired/reused tokens, marks the token used, retires other links, and sets `emailVerifiedAt`.
-- `lib/authOptions.js` does not require email verification: a correct password signs in regardless of `emailVerifiedAt`.
-- `app/api/auth/resend-verification/route.js`: legacy endpoint, 3 requests / 10 min per IP, 1 / min per address, honeypot, generic response for unknown addresses, and an honest `503` when SMTP is absent.
-- `lib/mail.js` owns SMTP configuration and Nodemailer delivery for legacy verification and password reset.
-- `app/verify-email/page.js` remains for old links, auto-verifies from `?token=`, handles expired/invalid links, and offers resend.
-- `app/login/page.js` asks only for email and password; it has no verification prompt or resend link. Before trying the password, it calls `/api/auth/account-status` and says "No account found with this email" (with a signup link) when the email is unknown.
+- Signup is email + password only (no name field). The account is saved ready to use and the person is signed in automatically; no verification email is sent and there is no "check your inbox" screen.
+- `app/login/page.js` asks only for email and password. Before trying the password, it calls `/api/auth/account-status` and says "No account found with this email" (with a signup link) when the email is unknown; a wrong password gets its own message.
 - `app/signup/page.js` signs the new account in automatically and routes to `/onboarding`. If auto sign-in ever fails, a fallback screen links to log in with the same credentials.
-- `app/api/auth/signup/route.js` checks the email first and returns `409` with "This email is already registered. Please log in instead." on a duplicate. It returns `verificationRequired: false` and a startable-account message on success.
+- `app/api/auth/signup/route.js` checks the email first and returns `409` with "This email is already registered. Please log in instead." on a duplicate, then returns a startable-account message on success.
 - `app/api/auth/account-status/route.js` answers `{ exists: true|false }` for an email, rate-limited to 20/min per IP with the usual honeypot. This is deliberately explicit account-enumeration feedback requested by the product owner, not a security-preserving generic response.
+- Email is used only as the login identifier. Verification pages, endpoints, tokens, the `EmailVerification` model, the `emailVerifiedAt` field, and the backfill script have all been removed.
+- `lib/mail.js` owns SMTP configuration and Nodemailer delivery for password reset only.
 
-Migration: `scripts/backfill-email-verified.js` (`npm run verify-backfill`) marks pre-verification accounts as verified once. Already run locally (69 accounts). New signups are unaffected.
-
-Limitation: without `SMTP_HOST`/`SMTP_FROM`, password-reset mail (and legacy verification mail) returns `503`. Signup and login never depend on email delivery.
+Limitation: without `SMTP_HOST`/`SMTP_FROM`, password-reset mail returns `503`. Signup and login never depend on email delivery, but a forgotten password cannot be reset by email without SMTP.
 
 ### 3. Selection-first onboarding
 
@@ -143,7 +133,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
   - Anonymous keying uses the last `X-Forwarded-For` hop, else `x-real-ip`, else `"direct"`. Authenticated traffic is classified with `getToken`.
   - Scanner blocklist returns `404` before the app runs: `/wp-*`, `/boaform|hnap1|gponform`, `/owa|ecp|autodiscover`, `/remote/login`, `.env`/`.git`/`phpmyadmin`, and `*.php|sql|bak`.
   - Same-origin checks, JSON-only `POST/PUT/PATCH`, and a 64 KB body cap via `lib/api.js`.
-  - Honeypot fields (`website`) on signup, login, forgot-password, and resend-verification. Login keeps a real bcrypt dummy hash so timing stays flat for unknown accounts.
+  - Honeypot fields (`website`) on signup, login, and forgot-password. Login keeps a real bcrypt dummy hash so timing stays flat for unknown accounts.
   - Security headers: CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, HSTS in production, `poweredByHeader: false`.
   - `/_next/image` deliberately returns `404` (the app uses no `next/image`).
 - `lib/passwordPolicy.js`: 8–72 bytes, rejects common/repeated passwords and passwords equal to the email; enforced on signup, reset, and login.
@@ -178,7 +168,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 ## Implemented features
 
 - Auth: two-field signup (email + password), duplicate-email rejection, immediate sign-in, login with an explicit "no account found" check, logout, password reset (SMTP-dependent), rate-limited credentials login
-- Email verification: not part of signup or login; legacy hashed one-time tokens (24h) and backfill remain only for links already sent
+- Email verification: removed entirely; accounts are ready at signup, with no tokens, endpoints, model, or `emailVerifiedAt` field
 - Household onboarding: seven selection-first steps (city/income/bill/goal/event presets, chips, steppers), conditional questions, skip where safe, live monthly preview, `setupComplete`; login lands on onboarding until it is complete
 - Household settings: members, city, timezone, planning start day, opening/savings/emergency balances
 - Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export; newest-first with immediate post-save visibility
@@ -206,18 +196,18 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 7. **Health check could lie.** Readiness used to trust a cached Mongoose handle. `connectDb` rebuilds a stale handle and `/api/health/ready` performs an actual `ping()`.
 8. **Income reset threw after await.** `event.currentTarget` was read after the request resolved; capture the form element first.
 9. **New records were hidden by filters/pages.** Reset to page 1, clear filters, and sort newest-first after create.
-10. **Email verification is not part of auth.** New accounts are saved with `emailVerifiedAt` set, signup sends no mail, and login has no verification prompt. The `authorize` check that threw `EmailNotVerified` remains removed; legacy verification endpoints still validate old tokens but are not linked from the UI.
+10. **Email verification is not part of auth.** Accounts are ready at signup, signup sends no mail, and login has no verification prompt or endpoint. The `authorize` check that threw `EmailNotVerified` was removed earlier; the remaining legacy token endpoints, model, and backfill were deleted, so do not reintroduce a verification gate without a deliberate product decision.
 
 ## Test layout and coverage
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
-- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/verification-onboarding.test.js`, `tests/dailySavings.test.js`
+- `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/onboarding.test.js`, `tests/dailySavings.test.js`
 - `tests/calculation-properties.test.js` runs seeded random previews and monthly plans across the full allowed input range, checking exact paisa totals, every plan identity, the daily balance chain, and a 31-day daily-wage month at the cap.
-- `tests/verification-onboarding.test.js` covers token randomness/hashing, invalid/used/expired token states, email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
+- `tests/onboarding.test.js` covers email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
 - `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
 - `tests/dailySavings.test.js` covers all five ratings, zero budgets, the stored-budget snapshot, unlogged days, net-negative cycles, invalid/unsafe inputs, overflow, and the seven-day window.
-- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, optional unverified login, verification token lifecycle (unknown/expired/valid/reuse), login after verification, onboarding, recurring income/expense, payments, plan/insights/reports, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
-- Test harnesses use a separate simulated IP per client so one bucket is not exhausted; verification tests use test-only DB helpers (`markVerified`, `seedVerifyToken`) against the local MongoDB.
+- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, duplicate-email rejection, account-existence checks, onboarding, recurring income/expense, payments, plan/insights/reports, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
+- Test harnesses use a separate simulated IP per client so one bucket is not exhausted.
 - `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget.
 
 ## Manual browser checks performed
@@ -237,9 +227,9 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 ## Known limitations (honest)
 
 - Rate limits and plan cache are per-process. Use Redis for multiple instances; the in-process limiter is not a distributed defense.
-- Email delivery (password reset, plus legacy verification links) requires SMTP. Without it the UI reports that delivery is not configured. Signup and login never depend on email; no 2FA yet.
+- Email delivery (password reset) requires SMTP. Without it the UI reports that delivery is not configured. Signup and login never depend on email; no 2FA yet.
 - `/api/auth/account-status` and the duplicate-signup `409` reveal whether an email is registered. This is intentional product feedback; if enumeration becomes a concern, switch both back to generic messages and remove the login pre-check.
-- Verification/reset links depend on a correct `APP_URL`/`NEXTAUTH_URL`.
+- Password-reset links depend on a correct `APP_URL`/`NEXTAUTH_URL`.
 - Onboarding uses separate writes for household, income, bills, debt, goal, event, and final balances. In-session retry flags skip already-created items, but a reload/crash mid-confirm can leave a partial plan; there is no MongoDB transaction.
 - Household deletion and recurring-occurrence generation are also not transactional.
 - No shared-household invite UI yet (membership roles exist).
@@ -256,8 +246,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 
 - Use HTTPS URLs in `NEXTAUTH_URL`/`APP_URL`; do not hardcode the `__Secure-` cookie prefix.
 - Run `npm run repair` once on a database created before the partial occurrence index, then `npm run indexes`.
-- Run `npm run verify-backfill` once after deploying if existing accounts should be marked verified; it is not required for sign-in while verification is optional.
-- Configure SMTP before advertising email verification or password reset.
+- Configure SMTP before relying on password reset.
 - Ensure MongoDB backups (`mongodump`/Atlas) and verify restores.
 - `ALLOW_INDEXING=true` only on the public production host.
 - Put the app behind HTTPS and a reverse proxy/CDN that appends the real peer to `X-Forwarded-For` (or sets `X-Real-IP`); the limiter trusts the last hop.

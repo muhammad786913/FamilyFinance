@@ -65,7 +65,7 @@ export default function SignupPage() {
           <>
             <h1 className="text-2xl font-semibold">Create account</h1>
             <p className="mt-1 text-sm text-navy/70">
-              Just an email and a password. No email verification needed.
+              Just an email and a password. Your account works right away.
             </p>
             <form className="mt-4 grid gap-3" onSubmit={onSubmit}>
               <Field label="Email" htmlFor="email">
