@@ -20,16 +20,13 @@ export default function SignupPage() {
     setError("");
     const form = new FormData(event.currentTarget);
     const body = {
-      name: form.get("name"),
       email: form.get("email"),
       password: form.get("password"),
       website: form.get("website"),
     };
     try {
       const result = await api("/api/auth/signup", { method: "POST", body });
-      // Verification is optional, so sign the new account in immediately and go
-      // straight to setup. This avoids a dead end when email delivery is not
-      // configured (no link arrives, but the account is ready to use).
+      // No email step: sign the new account in immediately and go straight to setup.
       const login = await signIn("credentials", {
         email: body.email,
         password: body.password,
@@ -37,7 +34,7 @@ export default function SignupPage() {
         redirect: false,
       });
       if (!login?.ok) {
-        setFallback({ email: String(body.email || ""), message: result?.message });
+        setFallback({ message: result?.message });
         return;
       }
       router.push("/onboarding");
@@ -60,7 +57,7 @@ export default function SignupPage() {
             <p className="text-sm text-navy/75">
               We could not sign you in automatically. Log in with the same email and password to start setup.
             </p>
-            <Link className="font-semibold text-cyan" href={`/login?email=${encodeURIComponent(fallback.email)}`}>
+            <Link className="font-semibold text-cyan" href="/login">
               Go to log in
             </Link>
           </div>
@@ -68,12 +65,9 @@ export default function SignupPage() {
           <>
             <h1 className="text-2xl font-semibold">Create account</h1>
             <p className="mt-1 text-sm text-navy/70">
-              Takes about two minutes. You will set up your household right after this.
+              Just an email and a password. No email verification needed.
             </p>
             <form className="mt-4 grid gap-3" onSubmit={onSubmit}>
-              <Field label="Name" htmlFor="name">
-                <Input id="name" name="name" required />
-              </Field>
               <Field label="Email" htmlFor="email">
                 <Input id="email" name="email" type="email" autoComplete="email" required />
               </Field>

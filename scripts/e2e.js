@@ -33,6 +33,10 @@ async function markVerified(email) {
   const conn = await db();
   await conn.collection("users").updateOne({ email }, { $set: { emailVerifiedAt: new Date() } });
 }
+async function markUnverified(email) {
+  const conn = await db();
+  await conn.collection("users").updateOne({ email }, { $set: { emailVerifiedAt: null } });
+}
 async function seedVerifyToken(email, { expired = false } = {}) {
   const conn = await db();
   const user = await conn.collection("users").findOne({ email });
@@ -212,17 +216,33 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const signupA = await A.signup("Ayesha Khan", aEmail, password);
   check("signup A returns 201", signupA.status === 201, signupA.data);
   check("signup does not require email verification", signupA.data?.verificationRequired === false, signupA.data);
-  check("signup reports a startable account", /start right away|optional/i.test(String(signupA.data?.message || "")), signupA.data?.message);
-  const unverifiedLogin = await A.login(aEmail, password);
-  check("unverified login allowed because verification is optional", unverifiedLogin === 200, unverifiedLogin);
-  await markVerified(aEmail);
+  check("signup reports a startable account", /start right away/i.test(String(signupA.data?.message || "")), signupA.data?.message);
+  const firstLogin = await A.login(aEmail, password);
+  check("login works immediately after signup", firstLogin === 200, firstLogin);
   check("login A succeeds", (await A.login(aEmail, password)) === 200, "login status");
   const sessionA = await A.call("/api/auth/session");
   check("session A has a user id", !!sessionA.data?.user?.id, sessionA.data);
 
-  // ---------- email verification lifecycle (fresh unverified user V) ----------
+  // ---------- account existence checks ----------
+  const duplicateSignup = await A.signup("Ayesha Again", aEmail, password);
+  check(
+    "duplicate signup is rejected with a clear message",
+    duplicateSignup.status === 409 && /already registered/i.test(String(duplicateSignup.data?.error || "")),
+    duplicateSignup.data
+  );
+  const existingStatus = await A.call("/api/auth/account-status", { method: "POST", body: { email: aEmail } });
+  check("account status finds the registered email", existingStatus.status === 200 && existingStatus.data?.exists === true, existingStatus.data);
+  const missingStatus = await A.call("/api/auth/account-status", {
+    method: "POST",
+    body: { email: `e2e-missing-${stamp}@example.com` },
+  });
+  check("account status reports a missing email", missingStatus.status === 200 && missingStatus.data?.exists === false, missingStatus.data);
+
+  // ---------- legacy email verification endpoints (tokens still validate) ----------
   const signupV = await V.signup("Verify User", vEmail, password);
   check("signup V for verification flow", signupV.status === 201, signupV.data);
+  // New signups are verified immediately, so force the legacy state for this test.
+  await markUnverified(vEmail);
   const resendNoSmtp = await V.call("/api/auth/resend-verification", { method: "POST", body: { email: vEmail } });
   check("resend reports missing email delivery honestly", resendNoSmtp.status === 503, resendNoSmtp.status);
   const unknownToken = await V.call("/api/auth/verify-email", { method: "POST", body: { token: "f".repeat(64) } });

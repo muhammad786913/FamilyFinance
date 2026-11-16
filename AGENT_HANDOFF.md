@@ -74,21 +74,22 @@ Verified via API probe and browser: `post1 201`, `post2 409`, row visible immedi
 Flow:
 
 - Signup validates email shape on the client (input `type="email"`) and server (`emailAddress` in `lib/validation.js`); shape validation never claims the mailbox exists.
-- New users are created with `emailVerifiedAt: null` and stay unverified until the link is opened.
-- `lib/issueVerification.js` creates a 256-bit random token, stores only its SHA-256 hash, expires it after 24 hours, and retires older unused tokens.
+- Signup is email + password only (no name field) and marks `emailVerifiedAt` immediately, so the account is usable the moment it is saved. No verification email is sent at signup.
+- Legacy verification endpoints remain for links already sent: `lib/issueVerification.js` creates a 256-bit random token, stores only its SHA-256 hash, expires it after 24 hours, and retires older unused tokens.
 - `models/EmailVerification.js`: `userId`, `tokenHash` (unique), `expiresAt` (TTL index), `usedAt`.
 - `app/api/auth/verify-email/route.js` rejects missing/unknown/expired/reused tokens, marks the token used, retires other links, and sets `emailVerifiedAt`.
-- `lib/authOptions.js` currently treats email verification as **optional**: verification tokens are still issued and validated, but a correct password can sign in without `emailVerifiedAt`. The earlier hard block (`EmailNotVerified`) was removed in commit `25bb5d4`. Re-add that check inside `authorize` if verification must be mandatory.
-- `app/api/auth/resend-verification/route.js`: 3 requests / 10 min per IP, 1 / min per address, honeypot, generic response for unknown addresses, and an honest `503` when SMTP is absent.
-- `lib/mail.js` owns SMTP configuration and Nodemailer delivery for both verification and password reset.
-- `app/verify-email/page.js` auto-verifies from `?token=`, handles expired/invalid links, and offers resend.
-- `app/login/page.js` shows “Verify your email” plus a resend link for `EmailNotVerified`.
-- `app/signup/page.js` signs the new account in automatically and routes to `/onboarding`; verification stays optional, so a missing email never blocks setup. If auto sign-in ever fails, a fallback screen links to log in with the same credentials.
-- `app/api/auth/signup/route.js` returns `verificationRequired: false` and a startable-account message, so the client never promises an inbox that will not arrive.
+- `lib/authOptions.js` does not require email verification: a correct password signs in regardless of `emailVerifiedAt`.
+- `app/api/auth/resend-verification/route.js`: legacy endpoint, 3 requests / 10 min per IP, 1 / min per address, honeypot, generic response for unknown addresses, and an honest `503` when SMTP is absent.
+- `lib/mail.js` owns SMTP configuration and Nodemailer delivery for legacy verification and password reset.
+- `app/verify-email/page.js` remains for old links, auto-verifies from `?token=`, handles expired/invalid links, and offers resend.
+- `app/login/page.js` asks only for email and password; it has no verification prompt or resend link. Before trying the password, it calls `/api/auth/account-status` and says "No account found with this email" (with a signup link) when the email is unknown.
+- `app/signup/page.js` signs the new account in automatically and routes to `/onboarding`. If auto sign-in ever fails, a fallback screen links to log in with the same credentials.
+- `app/api/auth/signup/route.js` checks the email first and returns `409` with "This email is already registered. Please log in instead." on a duplicate. It returns `verificationRequired: false` and a startable-account message on success.
+- `app/api/auth/account-status/route.js` answers `{ exists: true|false }` for an email, rate-limited to 20/min per IP with the usual honeypot. This is deliberately explicit account-enumeration feedback requested by the product owner, not a security-preserving generic response.
 
 Migration: `scripts/backfill-email-verified.js` (`npm run verify-backfill`) marks pre-verification accounts as verified once. Already run locally (69 accounts). New signups are unaffected.
 
-Limitation: without `SMTP_HOST`/`SMTP_FROM`, signup succeeds but verification/reset mail returns `503`; the UI must not promise an inbox.
+Limitation: without `SMTP_HOST`/`SMTP_FROM`, password-reset mail (and legacy verification mail) returns `503`. Signup and login never depend on email delivery.
 
 ### 3. Selection-first onboarding
 
@@ -175,8 +176,8 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 
 ## Implemented features
 
-- Auth: signup, login, logout, password reset (SMTP-dependent), rate-limited credentials login
-- Email verification: hashed one-time tokens (24h), rate-limited resend, honest delivery failures, legacy backfill; verification is currently optional at login (commit `25bb5d4`)
+- Auth: two-field signup (email + password), duplicate-email rejection, immediate sign-in, login with an explicit "no account found" check, logout, password reset (SMTP-dependent), rate-limited credentials login
+- Email verification: not part of signup or login; legacy hashed one-time tokens (24h) and backfill remain only for links already sent
 - Household onboarding: seven selection-first steps (city/income/bill/goal/event presets, chips, steppers), conditional questions, skip where safe, live monthly preview, `setupComplete`; login lands on onboarding until it is complete
 - Household settings: members, city, timezone, planning start day, opening/savings/emergency balances
 - Income and expenses: CRUD, partial payments with date + note, filters, pagination, CSV export; newest-first with immediate post-save visibility
@@ -204,7 +205,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 7. **Health check could lie.** Readiness used to trust a cached Mongoose handle. `connectDb` rebuilds a stale handle and `/api/health/ready` performs an actual `ping()`.
 8. **Income reset threw after await.** `event.currentTarget` was read after the request resolved; capture the form element first.
 9. **New records were hidden by filters/pages.** Reset to page 1, clear filters, and sort newest-first after create.
-10. **Email verification policy changed (current: optional).** The `authorize` check that threw `EmailNotVerified` was removed in commit `25bb5d4`, and the E2E expectation was updated to match. Tokens are still issued and validated; re-add the check if mandatory verification is required.
+10. **Email verification is not part of auth.** New accounts are saved with `emailVerifiedAt` set, signup sends no mail, and login has no verification prompt. The `authorize` check that threw `EmailNotVerified` remains removed; legacy verification endpoints still validate old tokens but are not linked from the UI.
 
 ## Test layout and coverage
 
@@ -222,7 +223,7 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 
 - Login/logout with the showcase account.
 - Income: created via the form, saw the success notice and the row at the top, repeat submit showed the idempotent “already existed, so it was not duplicated” notice, full reload kept the row.
-- Signup: honest “check your email” state with SMTP missing; unverified login is currently allowed because verification is optional.
+- Signup: email + password only, then automatic sign-in and onboarding; no email check and no verification screen.
 - Daily saving: logged Rs 10 against Rs 34.48 safe-to-spend → “Great saving today”, 8-coin burst, 7-day bar, and cycle total updated without reload; logged Rs 100 → “A little over budget” with cloud and drops; logged Rs 0 → 100% saved and coins again.
 - Onboarding: all seven steps, conditional school fees, debt/goal/event branches, preset selections, suggestion button, preview math, confirm, dashboard; a fresh signup was routed to onboarding and a completed account to the dashboard.
 - Public home: signed out shows the labelled example month; after login the same page shows "You are signed in" and workspace links, with no example figures.
@@ -235,7 +236,8 @@ The dashboard now opens with a "Today's saving" card that turns the planner's sa
 ## Known limitations (honest)
 
 - Rate limits and plan cache are per-process. Use Redis for multiple instances; the in-process limiter is not a distributed defense.
-- Email delivery (verification and reset) requires SMTP. Without it the UI reports that delivery is not configured. Verification is optional at login in the current build; no 2FA yet.
+- Email delivery (password reset, plus legacy verification links) requires SMTP. Without it the UI reports that delivery is not configured. Signup and login never depend on email; no 2FA yet.
+- `/api/auth/account-status` and the duplicate-signup `409` reveal whether an email is registered. This is intentional product feedback; if enumeration becomes a concern, switch both back to generic messages and remove the login pre-check.
 - Verification/reset links depend on a correct `APP_URL`/`NEXTAUTH_URL`.
 - Onboarding uses separate writes for household, income, bills, debt, goal, event, and final balances. In-session retry flags skip already-created items, but a reload/crash mid-confirm can leave a partial plan; there is no MongoDB transaction.
 - Household deletion and recurring-occurrence generation are also not transactional.
