@@ -58,7 +58,7 @@ export async function GET(req) {
     const categories = {};
     for (const exp of input.expenses) {
       const row = categories[exp.category] || { planned: 0, paid: 0 };
-      row.planned += exp.amountMinor;
+      if (exp.status !== "cancelled") row.planned += exp.amountMinor;
       row.paid += exp.paidMinor || 0;
       categories[exp.category] = row;
     }

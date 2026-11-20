@@ -54,6 +54,12 @@ test("irregular and partial income is not double counted", () => {
   const day10 = plan.daily.find((d) => d.date === "2026-10-10");
   assert.equal(day4.endingConfirmedMinor, base.startingBalanceMinor + 100000);
   assert.equal(day10.endingProjectedMinor, base.startingBalanceMinor + 300000);
+  const events = plan.daily.flatMap((d) => d.events).filter((e) => e.id === "f");
+  assert.deepEqual(events.map((e) => [e.date, e.amountMinor, e.confirmed]), [
+    ["2026-10-04", 100000, true],
+    ["2026-10-10", 200000, false],
+  ]);
+  assert.equal(events.reduce((sum, e) => sum + e.amountMinor, 0), 300000);
 });
 
 test("partially paid bills use remaining amount only", () => {
@@ -64,6 +70,36 @@ test("partially paid bills use remaining amount only", () => {
   });
   assert.equal(plan.totals.actualSpendMinor, 40000);
   assert.equal(plan.totals.unpaidBillsMinor, 60000);
+});
+
+test("status-aware totals reconcile with the day-by-day plan", () => {
+  const plan = runPlan({
+    ...base,
+    incomes: [
+      { id: "ok", name: "Received", amountMinor: 500000, receivedMinor: 500000, receivedDate: "2026-10-02", expectedDate: "2026-10-02", status: "received" },
+      { id: "part", name: "Partial", amountMinor: 400000, receivedMinor: 150000, receivedDate: "2026-10-04", expectedDate: "2026-10-10", status: "partial" },
+      { id: "late", name: "Delayed", amountMinor: 300000, receivedMinor: 0, expectedDate: "2026-10-12", status: "delayed" },
+      { id: "gone", name: "Cancelled", amountMinor: 200000, receivedMinor: 0, expectedDate: "2026-10-14", status: "cancelled" },
+    ],
+    expenses: [
+      { id: "paid", name: "Paid bill", amountMinor: 100000, paidMinor: 100000, paidDate: "2026-10-03", dueDate: "2026-10-03", status: "paid" },
+      { id: "due", name: "Due bill", amountMinor: 80000, paidMinor: 0, dueDate: "2026-10-09", status: "unpaid" },
+      { id: "void", name: "Cancelled bill", amountMinor: 70000, paidMinor: 0, dueDate: "2026-10-11", status: "cancelled" },
+    ],
+  });
+  const t = plan.totals;
+  assert.equal(t.confirmedIncomeMinor, 650000);
+  assert.equal(t.expectedIncomeLeftMinor, 250000);
+  assert.equal(t.actualSpendMinor, 100000);
+  assert.equal(t.unpaidBillsMinor, 80000);
+  assert.equal(
+    t.endingProjectedMinor,
+    base.startingBalanceMinor + t.confirmedIncomeMinor + t.expectedIncomeLeftMinor - t.actualSpendMinor - t.unpaidBillsMinor
+  );
+  assert.equal(
+    t.endingConfirmedMinor,
+    base.startingBalanceMinor + t.confirmedIncomeMinor - t.actualSpendMinor
+  );
 });
 
 test("negative projected balances are reported", () => {
@@ -78,14 +114,92 @@ test("negative projected balances are reported", () => {
   assert.ok(plan.daily.some((d) => d.shortage));
 });
 
-test("delayed expected income is not confirmed cash", () => {
+test("delayed expected income leaves both available balances unchanged", () => {
   const plan = runPlan({
     ...base,
     incomes: [{ id: "s", name: "Salary", amountMinor: 800000, receivedMinor: 0, expectedDate: "2026-10-15", status: "delayed", estimated: true }],
     expenses: [],
   });
   assert.equal(plan.totals.endingConfirmedMinor, base.startingBalanceMinor);
-  assert.ok(plan.totals.endingProjectedMinor > base.startingBalanceMinor);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 0);
+  assert.equal(plan.daily.flatMap((d) => d.events).filter((e) => e.id === "s").length, 0);
+});
+
+test("delayed income keeps real receipts but drops the unpaid projection", () => {
+  const plan = runPlan({
+    ...base,
+    incomes: [{
+      id: "s",
+      name: "Salary",
+      amountMinor: 800000,
+      receivedMinor: 200000,
+      receivedDate: "2026-10-04",
+      expectedDate: "2026-10-15",
+      status: "delayed",
+    }],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 200000);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 0);
+  assert.equal(plan.totals.endingConfirmedMinor, base.startingBalanceMinor + 200000);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor + 200000);
+  assert.deepEqual(plan.daily.flatMap((d) => d.events).filter((e) => e.id === "s").map((e) => e.amountMinor), [200000]);
+});
+
+test("cancelled income drops its future projection but keeps received cash", () => {
+  const plan = runPlan({
+    ...base,
+    incomes: [{
+      id: "s",
+      name: "Salary",
+      amountMinor: 900000,
+      receivedMinor: 300000,
+      receivedDate: "2026-10-04",
+      expectedDate: "2026-10-20",
+      status: "cancelled",
+    }],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 300000);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 0);
+  assert.equal(plan.totals.endingConfirmedMinor, base.startingBalanceMinor + 300000);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor + 300000);
+  assert.deepEqual(plan.daily.flatMap((d) => d.events).filter((e) => e.id === "s").map((e) => e.amountMinor), [300000]);
+});
+
+test("cancelled income with no receipt is fully excluded", () => {
+  const plan = runPlan({
+    ...base,
+    incomes: [{ id: "s", name: "Salary", amountMinor: 900000, receivedMinor: 0, expectedDate: "2026-10-20", status: "cancelled" }],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 0);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 0);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor);
+  assert.equal(plan.daily.flatMap((d) => d.events).filter((e) => e.id === "s").length, 0);
+});
+
+test("cancelled expense keeps paid cash but drops the unpaid remainder", () => {
+  const plan = runPlan({
+    ...base,
+    expenses: [{
+      id: "g",
+      name: "Gas",
+      amountMinor: 300000,
+      paidMinor: 100000,
+      paidDate: "2026-10-02",
+      dueDate: "2026-10-08",
+      essential: true,
+      status: "cancelled",
+    }],
+    incomes: [],
+  });
+  assert.equal(plan.totals.actualSpendMinor, 100000);
+  assert.equal(plan.totals.unpaidBillsMinor, 0);
+  assert.equal(plan.totals.endingConfirmedMinor, base.startingBalanceMinor - 100000);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor - 100000);
+  assert.deepEqual(plan.daily.flatMap((d) => d.events).filter((e) => e.id === "g").map((e) => e.amountMinor), [100000]);
 });
 
 test("actual spending changes remaining forecast", () => {

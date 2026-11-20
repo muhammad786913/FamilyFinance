@@ -4,16 +4,16 @@
 
 FamilyFinance is a full-stack household cash-flow planner for Pakistani families (default PKR). It stores real user records, authenticates accounts, and forecasts cash flow with deterministic JavaScript — no AI API and no fabricated results.
 
-## Verified state (2026-11-03)
+## Verified state (2026-11-21)
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 87/87 pass |
-| `npm.cmd run e2e` | 160/160 pass against a running production server |
+| `npm.cmd test` | 92/92 pass |
+| `npm.cmd run e2e` | 182/182 pass against a running production server |
 | `npm.cmd run verify` | 294/294 arithmetic assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
 | `npm.cmd run build` | succeeds (Next 15.5.28) |
-| Live smoke test | login → seven-step selection-first onboarding with live preview → dashboard; daily saving card logged Rs 10 (happy coin animation), Rs 100 (sad cloud), then Rs 0 (100% saved); signed-in home gate checked in a browser |
+| Live smoke test | login → seven-step selection-first onboarding with live preview → dashboard; daily saving card logged Rs 10 (happy coin animation), Rs 100 (sad cloud), then Rs 0 (100% saved); signed-in home gate and delayed-income cash-flow behaviour checked in a browser |
 | Node / npm | v24.19.0 / 11.17.0 |
 | MongoDB | 9.0, local `mongodb://127.0.0.1:27017/familyfinance` |
 | Git | check `git log -1 --oneline` for the current commit |
@@ -139,6 +139,21 @@ Fix and guardrails:
 
 Verified in a browser: the new row's select was active, `Received` was visibly disabled with a "record payment first" hint, selecting `Delayed` saved, the badge and select both updated, and the page showed "status changed to Delayed."
 
+### 3d. Status-aware cash flow is consistent everywhere
+
+Reported bug: status changes updated the row but not every projection. An expected income marked Delayed could still appear as future cash, a cancelled income could disappear entirely (including cash already received), and partial income needed to show only the money actually in hand.
+
+Fix and guardrails:
+
+- `lib/engine/planningEngine.js` now separates recorded cash from still-expected cash. `incomeStillExpectedMinor()` returns zero for `delayed` and `cancelled` income; `expenseStillOwedMinor()` returns zero for `cancelled` bills. Money already received or paid stays in the confirmed/paid events and balances.
+- Partial income produces exactly two events: confirmed `receivedMinor` on the received date and the projected remainder on the expected date. Their sum is exactly `amountMinor`, so the receipt is never counted twice.
+- `nextConfirmedIncomeDate()` uses recorded receipt dates first and only falls back to the expected date for a fully received row with no receipt date. A delayed or cancelled row can no longer fabricate a future confirmation, while real receipts still shorten the safe-to-spend horizon.
+- Reports and dashboard category plans exclude cancelled bills from their planned totals; money already paid still appears in actual/paid totals. Categories containing a cancelled bill are not reported as “over planned”.
+- Dashboard (`/api/insights`), monthly plan (`/api/plan`), reports (`/api/reports`) and simulator baseline (`/api/simulate`) all consume `runPlan()`. `audit()` invalidates the household plan cache on writes, so status changes appear immediately in every view.
+- Engine assumptions now state that delayed/cancelled income drops only its unpaid projection, and cancelled bills drop only their unpaid remainder.
+
+Regression coverage: five net new unit tests in `tests/planningEngine.test.js` cover delayed projections, retained receipts, cancelled income with and without receipts, cancelled expenses and total reconciliation; the partial-income test now asserts both dated events. `scripts/e2e.js` compares plan, insights, reports and simulator baseline before and after delayed, restored, partial and cancelled income, plus partial and cancelled bills, and checks category parity and no double counting.
+
 ### 4. Security and abuse hardening
 
 - `middleware.js` + `lib/botGuard.js` + `lib/rateLimit.js`:
@@ -212,6 +227,7 @@ Verified in a browser: the new row's select was active, `Received` was visibly d
 9. **New records were hidden by filters/pages.** Reset to page 1, clear filters, and sort newest-first after create.
 10. **Email verification is not part of auth.** Accounts are ready at signup, signup sends no mail, and login has no verification prompt or endpoint. The `authorize` check that threw `EmailNotVerified` was removed earlier; the remaining legacy token endpoints, model, and backfill were deleted, so do not reintroduce a verification gate without a deliberate product decision.
 11. **A status label is not a payment.** Income/expense status is editable from the list, but `received`/`paid` and `partial` are rejected by the API unless real payment records exist. Do not remove those guards: the planner treats only recorded cash as confirmed.
+12. **A status change must not erase or invent cash.** Delayed/cancelled income removes only the unpaid projection, cancelled bills remove only the unpaid remainder, and partial income counts `receivedMinor` once plus the remaining projection once. Do not restore the old `if (status === "cancelled") continue` shortcut in the event builders, and keep every cash-flow view on `runPlan()`.
 
 ## Test layout and coverage
 
@@ -221,7 +237,8 @@ Verified in a browser: the new row's select was active, `Received` was visibly d
 - `tests/onboarding.test.js` covers email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
 - `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
 - `tests/dailySavings.test.js` covers all five ratings, zero budgets, the stored-budget snapshot, unlogged days, net-negative cycles, invalid/unsafe inputs, overflow, and the seven-day window.
-- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, duplicate-email rejection, account-existence checks, onboarding, recurring income/expense, payments, editable statuses and payment guards, plan/insights/reports, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
+- `tests/planningEngine.test.js` covers status-aware cash flow: delayed projections, retained receipts, cancelled income/bills, partial income events, and reconciliation between totals and the day-by-day plan.
+- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, duplicate-email rejection, account-existence checks, onboarding, recurring income/expense, payments, editable statuses and payment guards, immediate cross-view agreement between plan/insights/reports/simulator after delayed/partial/cancelled income and partial/cancelled bills, category parity, no double counting, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
 - Test harnesses use a separate simulated IP per client so one bucket is not exhausted.
 - `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget.
 
@@ -229,6 +246,7 @@ Verified in a browser: the new row's select was active, `Received` was visibly d
 
 - Login/logout with the showcase account.
 - Income: created via the form, saw the success notice and the row at the top, repeat submit showed the idempotent “already existed, so it was not duplicated” notice, full reload kept the row. The inline Status select changed `expected` → `delayed` and updated the badge/notice; `Received` stayed disabled until a payment was recorded.
+- Delayed-income spot-check: after marking a future income Delayed, the dashboard showed no scheduled income for that account and Rs 0 projected/expected, with no browser console errors.
 - Signup: email + password only, then automatic sign-in and onboarding; no email check and no verification screen.
 - Daily saving: logged Rs 10 against Rs 34.48 safe-to-spend → “Great saving today”, 8-coin burst, 7-day bar, and cycle total updated without reload; logged Rs 100 → “A little over budget” with cloud and drops; logged Rs 0 → 100% saved and coins again.
 - Onboarding: all seven steps, conditional school fees, debt/goal/event branches, preset selections, suggestion button, preview math, confirm, dashboard; a fresh signup was routed to onboarding and a completed account to the dashboard.

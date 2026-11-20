@@ -68,6 +68,43 @@ function monthBounds(ymd) {
   return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, "0")}`, days: last };
 }
 
+/** Every screen must see the same cash-flow engine output for the current cycle. */
+async function cashFlowViews(client) {
+  const [plan, insights, reports, simulate] = await Promise.all([
+    client.call("/api/plan"),
+    client.call("/api/insights"),
+    client.call("/api/reports"),
+    client.call("/api/simulate", { method: "POST", body: {} }),
+  ]);
+  const p = plan.data?.plan;
+  const i = insights.data?.plan;
+  const r = reports.data;
+  const s = simulate.data?.baseline;
+  const fields = [
+    ["endingProjected", p?.totals?.endingProjectedMinor, i?.totals?.endingProjectedMinor, r?.endingProjectedMinor, s?.totals?.endingProjectedMinor],
+    ["endingConfirmed", p?.totals?.endingConfirmedMinor, i?.totals?.endingConfirmedMinor, r?.endingConfirmedMinor, s?.totals?.endingConfirmedMinor],
+    ["confirmedIncome", p?.totals?.confirmedIncomeMinor, i?.totals?.confirmedIncomeMinor, r?.confirmedIncomeMinor, s?.totals?.confirmedIncomeMinor],
+    ["expectedIncome", p?.totals?.expectedIncomeLeftMinor, i?.totals?.expectedIncomeLeftMinor, r?.expectedIncomeMinor, s?.totals?.expectedIncomeLeftMinor],
+    ["actualSpend", p?.totals?.actualSpendMinor, i?.totals?.actualSpendMinor, r?.actualSpendMinor, s?.totals?.actualSpendMinor],
+    ["unpaidBills", p?.totals?.unpaidBillsMinor, i?.totals?.unpaidBillsMinor, r?.unpaidBillsMinor, s?.totals?.unpaidBillsMinor],
+  ];
+  return {
+    plan: p,
+    insights,
+    reports: r,
+    simulate,
+    agree: p && i && r && s && fields.every(([, ...values]) => values.every((v) => v === values[0])),
+    mismatches: fields.filter(([, ...values]) => values.some((v) => v !== values[0])).map(([name, ...values]) => ({ name, values })),
+  };
+}
+
+function eventMinorFor(plan, id) {
+  return (plan?.daily || [])
+    .flatMap((day) => day.events || [])
+    .filter((event) => event.id === id)
+    .reduce((sum, event) => sum + event.amountMinor, 0);
+}
+
 function makeClient(ip = E2E_CLIENT_IP) {
   const store = new Map();
   return {
@@ -386,6 +423,151 @@ function makeClient(ip = E2E_CLIENT_IP) {
   });
   check("bill becomes paid after full payment", billFullPaid.data?.item?.status === "paid", billFullPaid.data?.item);
   await A.call(`/api/expenses/${statusBillId}`, { method: "DELETE" });
+
+  // ---------- status changes must update every cash-flow view immediately ----------
+  const flowIncome = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Status Flow Income", amount: 5000, expectedDate: futureDate, category: "other", frequency: "once" },
+  });
+  const flowIncomeId = flowIncome.data?.item?._id;
+  check("cash-flow test income created", flowIncome.status === 201 && !!flowIncomeId, flowIncome.data);
+  const beforeFlow = await cashFlowViews(A);
+  check("all cash-flow views agree before status changes", beforeFlow.agree === true, beforeFlow.mismatches);
+  const beforeFlowProjected = beforeFlow.plan?.totals?.endingProjectedMinor;
+  const beforeFlowConfirmed = beforeFlow.plan?.totals?.confirmedIncomeMinor;
+  const beforeFlowExpected = beforeFlow.plan?.totals?.expectedIncomeLeftMinor;
+
+  const flowDelayed = await A.call(`/api/income/${flowIncomeId}`, { method: "PATCH", body: { status: "delayed" } });
+  check("expected income can be marked delayed", flowDelayed.status === 200, flowDelayed.data);
+  const afterDelay = await cashFlowViews(A);
+  check(
+    "delayed income lowers projected balance immediately in every view",
+    afterDelay.agree === true && afterDelay.plan?.totals?.endingProjectedMinor === beforeFlowProjected - 500000,
+    { mismatches: afterDelay.mismatches, projected: afterDelay.plan?.totals?.endingProjectedMinor, expected: beforeFlowProjected - 500000 }
+  );
+  check(
+    "delayed income is removed from expected total and agenda",
+    afterDelay.plan?.totals?.expectedIncomeLeftMinor === beforeFlowExpected - 500000 &&
+      eventMinorFor(afterDelay.plan, flowIncomeId) === 0,
+    { total: afterDelay.plan?.totals?.expectedIncomeLeftMinor, expected: beforeFlowExpected - 500000, eventMinor: eventMinorFor(afterDelay.plan, flowIncomeId) }
+  );
+  check("delayed income leaves confirmed cash unchanged", afterDelay.plan?.totals?.confirmedIncomeMinor === beforeFlowConfirmed, afterDelay.plan?.totals);
+
+  const flowExpectedAgain = await A.call(`/api/income/${flowIncomeId}`, { method: "PATCH", body: { status: "expected" } });
+  check("delayed income can be restored to expected", flowExpectedAgain.status === 200, flowExpectedAgain.data);
+  const afterRestore = await cashFlowViews(A);
+  check(
+    "restoring expected restores the projection everywhere",
+    afterRestore.agree === true && afterRestore.plan?.totals?.endingProjectedMinor === beforeFlowProjected,
+    { mismatches: afterRestore.mismatches, projected: afterRestore.plan?.totals?.endingProjectedMinor }
+  );
+
+  const flowPartial = await A.call(`/api/income/${flowIncomeId}`, {
+    method: "PATCH",
+    body: { receive: 2000, receivedDate: today, note: "partial" },
+  });
+  check("partial payment recorded on cash-flow test income", flowPartial.data?.item?.status === "partial", flowPartial.data?.item);
+  const afterPartial = await cashFlowViews(A);
+  check(
+    "partial income counts only received cash as confirmed",
+    afterPartial.agree === true &&
+      afterPartial.plan?.totals?.confirmedIncomeMinor === beforeFlowConfirmed + 200000 &&
+      afterPartial.plan?.totals?.expectedIncomeLeftMinor === beforeFlowExpected - 200000,
+    { mismatches: afterPartial.mismatches, totals: afterPartial.plan?.totals, expectedIncome: beforeFlowExpected - 200000 }
+  );
+  check(
+    "partial income is not double counted",
+    afterPartial.plan?.totals?.endingProjectedMinor === beforeFlowProjected && eventMinorFor(afterPartial.plan, flowIncomeId) === 500000,
+    { projected: afterPartial.plan?.totals?.endingProjectedMinor, eventMinor: eventMinorFor(afterPartial.plan, flowIncomeId) }
+  );
+  check(
+    "partial receipt appears as confirmed cash on its received date",
+    (afterPartial.plan?.daily || []).some((day) =>
+      day.date === today && (day.events || []).some((event) => event.id === flowIncomeId && event.confirmed && event.amountMinor === 200000)
+    ),
+    afterPartial.plan?.daily?.find((day) => day.date === today)?.events
+  );
+
+  const flowCancelled = await A.call(`/api/income/${flowIncomeId}`, { method: "PATCH", body: { status: "cancelled" } });
+  check("partially received income can be cancelled", flowCancelled.status === 200, flowCancelled.data);
+  const afterIncomeCancel = await cashFlowViews(A);
+  check(
+    "cancelled income drops only the remaining projection",
+    afterIncomeCancel.agree === true && afterIncomeCancel.plan?.totals?.endingProjectedMinor === beforeFlowProjected - 300000,
+    { mismatches: afterIncomeCancel.mismatches, projected: afterIncomeCancel.plan?.totals?.endingProjectedMinor }
+  );
+  check(
+    "cancelled income keeps the receipt and leaves expected total alone",
+    afterIncomeCancel.plan?.totals?.confirmedIncomeMinor === beforeFlowConfirmed + 200000 &&
+      afterIncomeCancel.plan?.totals?.expectedIncomeLeftMinor === beforeFlowExpected - 500000 &&
+      eventMinorFor(afterIncomeCancel.plan, flowIncomeId) === 200000,
+    { totals: afterIncomeCancel.plan?.totals, expectedIncome: beforeFlowExpected - 500000, eventMinor: eventMinorFor(afterIncomeCancel.plan, flowIncomeId) }
+  );
+  await A.call(`/api/income/${flowIncomeId}`, { method: "DELETE" });
+
+  const flowBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Status Flow Bill", amount: 3000, dueDate: futureDate, category: "other", frequency: "once", essential: false },
+  });
+  const flowBillId = flowBill.data?.item?._id;
+  check("cash-flow test bill created", flowBill.status === 201 && !!flowBillId, flowBill.data);
+  const beforeBillFlow = await cashFlowViews(A);
+  check("all cash-flow views agree before bill status changes", beforeBillFlow.agree === true, beforeBillFlow.mismatches);
+  const beforeBillProjected = beforeBillFlow.plan?.totals?.endingProjectedMinor;
+  const beforeBillSpend = beforeBillFlow.plan?.totals?.actualSpendMinor;
+  const beforeBillUnpaid = beforeBillFlow.plan?.totals?.unpaidBillsMinor;
+
+  const billPartialFlow = await A.call(`/api/expenses/${flowBillId}`, {
+    method: "PATCH",
+    body: { pay: 1000, paidDate: today, note: "partial" },
+  });
+  check("partial bill payment recorded on cash-flow test bill", billPartialFlow.data?.item?.status === "partial", billPartialFlow.data?.item);
+  const afterBillPartial = await cashFlowViews(A);
+  check(
+    "partially paid bill keeps only the unpaid remainder",
+    afterBillPartial.agree === true &&
+      afterBillPartial.plan?.totals?.actualSpendMinor === beforeBillSpend + 100000 &&
+      afterBillPartial.plan?.totals?.unpaidBillsMinor === beforeBillUnpaid - 100000 &&
+      afterBillPartial.plan?.totals?.endingProjectedMinor === beforeBillProjected &&
+      eventMinorFor(afterBillPartial.plan, flowBillId) === 300000,
+    {
+      mismatches: afterBillPartial.mismatches,
+      totals: afterBillPartial.plan?.totals,
+      expected: { spend: beforeBillSpend + 100000, unpaid: beforeBillUnpaid - 100000, projected: beforeBillProjected },
+      eventMinor: eventMinorFor(afterBillPartial.plan, flowBillId),
+    }
+  );
+
+  const billCancelFlow = await A.call(`/api/expenses/${flowBillId}`, { method: "PATCH", body: { status: "cancelled" } });
+  check("partially paid bill can be cancelled", billCancelFlow.status === 200, billCancelFlow.data);
+  const afterBillCancel = await cashFlowViews(A);
+  check(
+    "cancelled bill drops the unpaid remainder but keeps paid cash",
+    afterBillCancel.agree === true &&
+      afterBillCancel.plan?.totals?.actualSpendMinor === beforeBillSpend + 100000 &&
+      afterBillCancel.plan?.totals?.unpaidBillsMinor === beforeBillUnpaid - 300000 &&
+      afterBillCancel.plan?.totals?.endingProjectedMinor === beforeBillProjected + 200000 &&
+      eventMinorFor(afterBillCancel.plan, flowBillId) === 100000,
+    {
+      mismatches: afterBillCancel.mismatches,
+      totals: afterBillCancel.plan?.totals,
+      expected: { spend: beforeBillSpend + 100000, unpaid: beforeBillUnpaid - 300000, projected: beforeBillProjected + 200000 },
+      eventMinor: eventMinorFor(afterBillCancel.plan, flowBillId),
+    }
+  );
+  const beforeOtherReport = beforeBillFlow.reports?.byCategory?.other || { planned: 0, actual: 0 };
+  const afterOtherReport = afterBillCancel.reports?.byCategory?.other || { planned: 0, actual: 0 };
+  const beforeOtherInsight = beforeBillFlow.insights?.data?.categories?.other || { planned: 0, paid: 0 };
+  const afterOtherInsight = afterBillCancel.insights?.data?.categories?.other || { planned: 0, paid: 0 };
+  check(
+    "cancelled bill leaves category plans but keeps its payment in reports and dashboard",
+    afterOtherReport.planned === beforeOtherReport.planned - 300000 &&
+      afterOtherReport.actual === beforeOtherReport.actual + 100000 &&
+      afterOtherInsight.planned === beforeOtherInsight.planned - 300000 &&
+      afterOtherInsight.paid === beforeOtherInsight.paid + 100000,
+    { beforeOtherReport, afterOtherReport, beforeOtherInsight, afterOtherInsight }
+  );
+  await A.call(`/api/expenses/${flowBillId}`, { method: "DELETE" });
 
   // Edit a repeating row: it must propagate to the schedule for next month.
   const editRent = await A.call(`/api/expenses/${rentOccurrenceId}`, { method: "PATCH", body: { category: "debt", priority: 2 } });

@@ -6,7 +6,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 
 - Sign up (with automatic sign-in straight into setup), log in, logout, optional password reset (only if SMTP is configured)
 - Household onboarding (seven selection-first steps with conditional questions and a live monthly preview) and settings (currency, timezone, planning month, members); login lands on onboarding until setup is complete
-- Income and expense CRUD with edit forms, inline status changes, partial payments, status/category filters, pagination; a status label cannot fake a payment
+- Income and expense CRUD with edit forms, inline status changes, partial payments, status/category filters, pagination; delayed, cancelled and partial statuses stay consistent across dashboard, plan, reports and simulator, and a status label cannot fake a payment
 - Repeating income/bills: one payable occurrence at a time, edits propagate to unpaid future cycles, deleting a row removes the series
 - Rich dashboard: cash-flow health score, 14-day agenda, balance timeline, category split, six-cycle trend, runway
 - Daily / weekly / monthly cash-flow engine
@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, account and sign-in design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **87 unit tests**, **160 E2E checks**, and **294 independent arithmetic assertions**, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **92 unit tests**, **182 E2E checks**, and **294 independent arithmetic assertions**, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -118,6 +118,8 @@ Set `ALLOW_INDEXING=true` only on the public production host. Staging should sta
 
 - Amounts are stored as integer minor units (paisa). Conversion from major units uses round half-up.
 - Received income is added once on the received date. Expected income is projected only.
+- Partial income adds only the received cash now and projects the remaining amount once on its expected date; the two never overlap.
+- Delayed or cancelled income drops its unpaid projection, but money already received stays confirmed. Cancelled bills drop their unpaid remainder, but money already paid stays counted.
 - Unpaid bills keep their original due date. Passing the due date does not mark them paid.
 - Suggested daily spend is an estimate after reserve and essentials due before the next confirmed income.
 - Projections are not guaranteed outcomes.
@@ -164,7 +166,7 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Password reset by email requires SMTP. Without SMTP, the reset form reports that delivery is not configured rather than claiming mail was sent. Signup and login never depend on email delivery.
-- Automated coverage is 87 unit tests plus a 145-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 92 unit tests plus a 182-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what password reset needs.
