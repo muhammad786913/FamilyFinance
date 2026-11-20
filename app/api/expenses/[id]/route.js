@@ -60,8 +60,11 @@ export async function PATCH(req, { params }) {
       else item.status = "partial";
     }
     if (body.status && EXPENSE_STATUSES.includes(body.status) && body.pay == null) {
-      if (body.status === "paid" && item.paidMinor <= 0) {
-        return json({ error: "Record a payment before marking a bill paid. Due dates are not auto-paid." }, 400);
+      if (body.status === "paid" && item.paidMinor < item.amountMinor) {
+        return json({ error: "Record the full payment before marking a bill paid. Due dates are not auto-paid." }, 400);
+      }
+      if (body.status === "partial" && item.paidMinor <= 0) {
+        return json({ error: "Record a payment before marking a bill partially paid." }, 400);
       }
       item.status = body.status;
     }

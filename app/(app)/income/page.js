@@ -23,6 +23,15 @@ const STATUSES = [
   ["cancelled", "Cancelled"],
 ];
 
+// Shown next to each row so the status can actually be changed from the UI.
+const STATUS_CHOICES = [
+  ["expected", "Expected — not received yet"],
+  ["partial", "Partially received"],
+  ["delayed", "Delayed"],
+  ["received", "Received"],
+  ["cancelled", "Cancelled"],
+];
+
 export default function IncomePage() {
   return (
     <Records
@@ -31,6 +40,7 @@ export default function IncomePage() {
       kind="income"
       submitLabel="Add income"
       payField="receive"
+      statusOptions={STATUS_CHOICES}
       filters={[
         { name: "status", label: "Status", options: STATUSES },
         { name: "category", label: "Category", options: [["", "All categories"], ...CATEGORIES] },
@@ -45,7 +55,7 @@ export default function IncomePage() {
         estimated: item.estimated,
       })}
       renderMeta={(item) =>
-        `${formatMoney(item.amountMinor)} expected ${item.expectedDate} · received ${formatMoney(item.receivedMinor)}`
+        `${formatMoney(item.amountMinor)} planned for ${item.expectedDate} · ${formatMoney(item.receivedMinor)} received`
       }
       fields={[
         { name: "name", label: "Source", required: true },
@@ -65,7 +75,13 @@ export default function IncomePage() {
           ],
         },
         { name: "notes", label: "Notes" },
-        { name: "estimated", label: "This amount is estimated", type: "checkbox", defaultChecked: true },
+        {
+          name: "estimated",
+          label: "This amount is estimated",
+          type: "checkbox",
+          defaultChecked: true,
+          hint: "Unticking only says the amount is fixed. Use Record payment when the money actually arrives.",
+        },
       ]}
     />
   );

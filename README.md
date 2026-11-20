@@ -6,7 +6,7 @@ Household cash-flow planner for Pakistani families (default PKR). It stores real
 
 - Sign up (with automatic sign-in straight into setup), log in, logout, optional password reset (only if SMTP is configured)
 - Household onboarding (seven selection-first steps with conditional questions and a live monthly preview) and settings (currency, timezone, planning month, members); login lands on onboarding until setup is complete
-- Income and expense CRUD with edit forms, partial payments, status/category filters, pagination
+- Income and expense CRUD with edit forms, inline status changes, partial payments, status/category filters, pagination; a status label cannot fake a payment
 - Repeating income/bills: one payable occurrence at a time, edits propagate to unpaid future cycles, deleting a row removes the series
 - Rich dashboard: cash-flow health score, 14-day agenda, balance timeline, category split, six-cycle trend, runway
 - Daily / weekly / monthly cash-flow engine
@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, account and sign-in design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **87 unit tests**, **145 E2E checks**, and an independent arithmetic audit of every money output, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state: **87 unit tests**, **160 E2E checks**, and **294 independent arithmetic assertions**, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 

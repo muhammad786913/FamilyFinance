@@ -13,6 +13,7 @@ import {
   audit,
 } from "@/lib/api";
 import { INCOME_CATEGORIES, FREQUENCIES, INCOME_STATUSES } from "@/lib/constants";
+import { todayInZone } from "@/lib/dates";
 
 async function load(membership, id) {
   if (!mongoose.isValidObjectId(id)) {
@@ -59,7 +60,20 @@ export async function PATCH(req, { params }) {
       else item.status = "partial";
     }
     if (body.status && INCOME_STATUSES.includes(body.status) && body.receive == null) {
+      // A status is only a label. It must never turn projected money into
+      // spendable cash without a real payment being recorded first.
+      if (body.status === "received" && item.receivedMinor < item.amountMinor) {
+        const err = new Error("Record the full amount received before marking this as Received.");
+        err.status = 400;
+        throw err;
+      }
+      if (body.status === "partial" && item.receivedMinor <= 0) {
+        const err = new Error("Record a received amount before marking this as Partially received.");
+        err.status = 400;
+        throw err;
+      }
       item.status = body.status;
+      if (body.status === "received" && !item.receivedDate) item.receivedDate = todayInZone();
     }
     await item.save();
     if (item.scheduleId) {

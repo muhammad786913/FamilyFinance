@@ -66,7 +66,7 @@ function PaymentForm({ endpoint, item, payField, onDone, onCancel }) {
   );
 }
 
-export function Records({ title, endpoint, fields, submitLabel, renderMeta, payField, filters = [], editValues, kind }) {
+export function Records({ title, endpoint, fields, submitLabel, renderMeta, payField, filters = [], statusOptions = [], editValues, kind }) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -110,6 +110,10 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const isIncome = kind === "income";
+  const finalStatus = payField === "receive" ? "received" : "paid";
+  const statusLabel = (value) => statusOptions.find(([option]) => option === value)?.[1] || value;
+  const paidAmount = (item) => (payField === "receive" ? item.receivedMinor || 0 : item.paidMinor || 0);
+  const isFullyPaid = (item) => paidAmount(item) >= item.amountMinor;
   const stats = isIncome
     ? [
         ["Records shown", String(total), "Matched by your filters", "default"],
@@ -132,6 +136,20 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
     setActive((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function changeStatus(item, status) {
+    setNotice("");
+    setError("");
+    try {
+      await api(`${endpoint}/${item._id}`, { method: "PATCH", body: { status } });
+      await load();
+      setNotice(`${item.name}: status changed to ${statusLabel(status)}.`);
+    } catch (err) {
+      setError(err.message);
+      // Put the select back to the saved value when the server rejects the change.
+      await load();
+    }
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader
@@ -139,8 +157,8 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
         title={title}
         description={
           isIncome
-            ? "Expected income is a projection until you record it as received. Filters and search apply to the list below."
-            : "Unpaid bills keep their original due date — they are never moved automatically. Mark a bill paid when the money leaves."
+            ? "Expected means the money is not in hand yet. Change a row's Status directly, or record a payment when it arrives. Filters apply to the list below."
+            : "Unpaid bills keep their original due date — they are never moved automatically. Change a row's Status, or mark a bill paid when the money leaves."
         }
         actions={
           <a
@@ -230,10 +248,34 @@ export function Records({ title, endpoint, fields, submitLabel, renderMeta, payF
                   <p className="font-semibold">{item.name}</p>
                   <p className="text-sm text-navy/80">{renderMeta(item)}</p>
                   <div className="mt-1 flex flex-wrap gap-2">
-                    <Badge>{item.status}</Badge>
+                    <Badge>{statusLabel(item.status)}</Badge>
                     {item.scheduleId ? <Badge>repeating</Badge> : <Badge>{item.frequency}</Badge>}
                     {item.essential === false ? <Badge>optional</Badge> : null}
                   </div>
+                  {statusOptions.length ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="text-xs font-semibold text-navy/70" htmlFor={`status-${item._id}`}>
+                        Status
+                      </label>
+                      <Select
+                        id={`status-${item._id}`}
+                        className="w-auto min-h-9 py-1 text-xs"
+                        value={item.status}
+                        onChange={(event) => changeStatus(item, event.target.value)}
+                      >
+                        {statusOptions.map(([value, label]) => {
+                          const needsPayment =
+                            (value === finalStatus && !isFullyPaid(item)) ||
+                            (value === "partial" && paidAmount(item) <= 0);
+                          return (
+                            <option key={value} value={value} disabled={needsPayment}>
+                              {needsPayment ? `${label} — record payment first` : label}
+                            </option>
+                          );
+                        })}
+                      </Select>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {editValues ? (

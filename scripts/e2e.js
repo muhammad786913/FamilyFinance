@@ -290,6 +290,39 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const zeroIncome = await A.call("/api/income", { method: "POST", body: { name: "Zero", amount: 0, expectedDate: incomeDate } });
   check("zero income rejected", zeroIncome.status === 400, zeroIncome.data);
 
+  // ---------- income status is editable but cannot fake cash ----------
+  const statusIncome = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Status Test Income", amount: 1000, expectedDate: futureDate, frequency: "once" },
+  });
+  const statusIncomeId = statusIncome.data?.item?._id;
+  check("status test income created", statusIncome.status === 201 && !!statusIncomeId, statusIncome.data);
+  const incomeDelayed = await A.call(`/api/income/${statusIncomeId}`, { method: "PATCH", body: { status: "delayed" } });
+  check("income status can be changed from the UI API", incomeDelayed.status === 200 && incomeDelayed.data?.item?.status === "delayed", incomeDelayed.data?.item);
+  const incomeReceivedEarly = await A.call(`/api/income/${statusIncomeId}`, { method: "PATCH", body: { status: "received" } });
+  check(
+    "income cannot be marked received without a payment",
+    incomeReceivedEarly.status === 400 && /full amount/i.test(String(incomeReceivedEarly.data?.error || "")),
+    incomeReceivedEarly.data
+  );
+  const incomePartialEarly = await A.call(`/api/income/${statusIncomeId}`, { method: "PATCH", body: { status: "partial" } });
+  check("income cannot be marked partial without a payment", incomePartialEarly.status === 400, incomePartialEarly.data);
+  const incomePartPaid = await A.call(`/api/income/${statusIncomeId}`, {
+    method: "PATCH",
+    body: { receive: 400, receivedDate: futureDate },
+  });
+  check("partial income recorded", incomePartPaid.data?.item?.status === "partial", incomePartPaid.data?.item);
+  const incomeReceivedPartial = await A.call(`/api/income/${statusIncomeId}`, { method: "PATCH", body: { status: "received" } });
+  check("income cannot be marked received after only a partial payment", incomeReceivedPartial.status === 400, incomeReceivedPartial.data);
+  const incomeFullPaid = await A.call(`/api/income/${statusIncomeId}`, {
+    method: "PATCH",
+    body: { receive: 600, receivedDate: futureDate },
+  });
+  check("income becomes received after full payment", incomeFullPaid.data?.item?.status === "received", incomeFullPaid.data?.item);
+  const incomeReceivedAgain = await A.call(`/api/income/${statusIncomeId}`, { method: "PATCH", body: { status: "received" } });
+  check("received income status is still editable", incomeReceivedAgain.status === 200, incomeReceivedAgain.data);
+  await A.call(`/api/income/${statusIncomeId}`, { method: "DELETE" });
+
   // ---------- repeating expense ----------
   const rent = await A.call("/api/expenses", {
     method: "POST",
@@ -322,6 +355,37 @@ function makeClient(ip = E2E_CLIENT_IP) {
 
   const badExpense = await A.call("/api/expenses", { method: "POST", body: { name: "Zero", amount: 0, dueDate: billDate } });
   check("zero amount expense rejected", badExpense.status === 400, badExpense.data);
+
+  // ---------- bill status is editable but cannot fake a payment ----------
+  const statusBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Status Test Bill", amount: 1000, dueDate: billDate, frequency: "once" },
+  });
+  const statusBillId = statusBill.data?.item?._id;
+  check("status test bill created", statusBill.status === 201 && !!statusBillId, statusBill.data);
+  const billOverdue = await A.call(`/api/expenses/${statusBillId}`, { method: "PATCH", body: { status: "overdue" } });
+  check("bill status can be changed from the UI API", billOverdue.status === 200 && billOverdue.data?.item?.status === "overdue", billOverdue.data?.item);
+  const billPaidEarly = await A.call(`/api/expenses/${statusBillId}`, { method: "PATCH", body: { status: "paid" } });
+  check(
+    "bill cannot be marked paid without a payment",
+    billPaidEarly.status === 400 && /full payment/i.test(String(billPaidEarly.data?.error || "")),
+    billPaidEarly.data
+  );
+  const billPartialEarly = await A.call(`/api/expenses/${statusBillId}`, { method: "PATCH", body: { status: "partial" } });
+  check("bill cannot be marked partial without a payment", billPartialEarly.status === 400, billPartialEarly.data);
+  const billPartPaid = await A.call(`/api/expenses/${statusBillId}`, {
+    method: "PATCH",
+    body: { pay: 400, paidDate: billDate },
+  });
+  check("partial bill payment recorded", billPartPaid.data?.item?.status === "partial", billPartPaid.data?.item);
+  const billPaidPartial = await A.call(`/api/expenses/${statusBillId}`, { method: "PATCH", body: { status: "paid" } });
+  check("bill cannot be marked paid after only a partial payment", billPaidPartial.status === 400, billPaidPartial.data);
+  const billFullPaid = await A.call(`/api/expenses/${statusBillId}`, {
+    method: "PATCH",
+    body: { pay: 600, paidDate: billDate },
+  });
+  check("bill becomes paid after full payment", billFullPaid.data?.item?.status === "paid", billFullPaid.data?.item);
+  await A.call(`/api/expenses/${statusBillId}`, { method: "DELETE" });
 
   // Edit a repeating row: it must propagate to the schedule for next month.
   const editRent = await A.call(`/api/expenses/${rentOccurrenceId}`, { method: "PATCH", body: { category: "debt", priority: 2 } });

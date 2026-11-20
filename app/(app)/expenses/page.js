@@ -27,6 +27,15 @@ const STATUSES = [
   ["cancelled", "Cancelled"],
 ];
 
+// Same inline control as the income page, so a bill's state is never read-only.
+const STATUS_CHOICES = [
+  ["unpaid", "Unpaid — not paid yet"],
+  ["partial", "Partially paid"],
+  ["overdue", "Overdue"],
+  ["paid", "Paid"],
+  ["cancelled", "Cancelled"],
+];
+
 export default function ExpensesPage() {
   return (
     <Records
@@ -35,6 +44,7 @@ export default function ExpensesPage() {
       kind="expense"
       submitLabel="Add bill"
       payField="pay"
+      statusOptions={STATUS_CHOICES}
       filters={[
         { name: "status", label: "Status", options: STATUSES },
         { name: "category", label: "Category", options: [["", "All categories"], ...CATEGORIES] },
@@ -50,7 +60,7 @@ export default function ExpensesPage() {
         notes: item.notes,
       })}
       renderMeta={(item) =>
-        `${formatMoney(item.amountMinor)} due ${item.dueDate} · paid ${formatMoney(item.paidMinor)}${item.essential ? " · essential" : " · optional"}`
+        `${formatMoney(item.amountMinor)} due ${item.dueDate} · ${formatMoney(item.paidMinor)} paid${item.essential ? " · essential" : " · optional"}`
       }
       fields={[
         { name: "name", label: "Bill name", required: true },

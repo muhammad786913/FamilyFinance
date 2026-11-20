@@ -37,7 +37,7 @@ export function MoneyForm({ fields, submitLabel, onSubmit, extra, values }) {
   return (
     <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
       {fields.map((f) => (
-        <Field key={f.name} label={f.label} htmlFor={f.name}>
+        <Field key={f.name} label={f.label} htmlFor={f.name} hint={f.hint}>
           {f.type === "select" ? (
             <Select id={f.name} name={f.name} defaultValue={value(f)} required={f.required}>
               {f.options.map(([v, l]) => (
