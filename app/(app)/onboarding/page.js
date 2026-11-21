@@ -129,8 +129,11 @@ function shortDate(ymd) {
 function minorOf(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || n > MONEY_MAX) return 0;
-  const minor = Math.round(n * 100);
-  return Number.isSafeInteger(minor) ? minor : 0;
+  try {
+    return moneyModule.majorToMinor(value);
+  } catch {
+    return 0;
+  }
 }
 
 function moneyProblem(value, label, { required = false } = {}) {
@@ -138,7 +141,12 @@ function moneyProblem(value, label, { required = false } = {}) {
   if (!raw) return required ? `${label} is required.` : "";
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return `${label} must be a positive number.`;
-  if (n > MONEY_MAX || !Number.isSafeInteger(Math.round(n * 100))) return `${label} is too large.`;
+  if (n > MONEY_MAX) return `${label} is too large.`;
+  try {
+    moneyModule.majorToMinor(raw);
+  } catch {
+    return `${label} is too large.`;
+  }
   return "";
 }
 

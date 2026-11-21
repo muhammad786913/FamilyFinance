@@ -40,3 +40,21 @@ test("scenario payload rejects negative or fractional delay days", () => {
     assert.throws(() => buildScenarioPayload({ delayDays }, period), /Invalid delay days/);
   }
 });
+
+test("simulated extra expenses must fall inside the selected planning period", () => {
+  const cycle = { start: "2026-10-01", end: "2026-10-31" };
+  const inRange = buildScenarioPayload(
+    { extraAmount: "1000", extraDate: "2026-10-31" },
+    cycle
+  );
+  assert.equal(inRange.extraExpense.dueDate, "2026-10-31");
+  assert.equal(inRange.extraExpense.amountMinor, 100000);
+
+  for (const extraDate of ["2026-09-30", "2026-11-01", "2026-02-30", "not-a-date"]) {
+    assert.throws(
+      () => buildScenarioPayload({ extraAmount: "1000", extraDate }, cycle),
+      /planning period|Invalid extra date/,
+      `expected rejection for ${extraDate}`
+    );
+  }
+});

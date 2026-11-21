@@ -8,11 +8,21 @@ import {
   assertWrite,
   handle,
   moneyField,
-  addMinorField,
   ymd,
   audit,
+  oneOf,
+  priorityField,
 } from "@/lib/api";
 import { EXPENSE_CATEGORIES, FREQUENCIES, EXPENSE_STATUSES } from "@/lib/constants";
+import {
+  addPayment,
+  assertScheduleConversionAllowed,
+  nextOccurrenceKey,
+  paidTotal,
+  removePayment,
+  setPaymentsTotal,
+  statusAfterAmountEdit,
+} from "@/lib/recordIntegrity";
 
 async function load(membership, id) {
   if (!mongoose.isValidObjectId(id)) {
@@ -30,6 +40,7 @@ async function load(membership, id) {
 }
 
 export async function PATCH(req, { params }) {
+  let duplicateFilter = null;
   try {
     const { id } = await params;
     const session = await requireSession();
@@ -37,43 +48,80 @@ export async function PATCH(req, { params }) {
     assertWrite(membership);
     const item = await load(membership, id);
     const body = await parseJson(req);
-    if (body.name) item.name = String(body.name).slice(0, 120);
-    if (body.amount != null) item.amountMinor = moneyField(body.amount, "amount", { positive: true });
-    if (body.dueDate) item.dueDate = ymd(body.dueDate);
-    if (body.category && EXPENSE_CATEGORIES.includes(body.category)) item.category = body.category;
-    if (body.frequency && FREQUENCIES.includes(body.frequency) && body.frequency !== "once" && !item.scheduleId) {
-      item.frequency = body.frequency;
-      item.occurrenceKey = undefined;
-      item.scheduleId = null;
+
+    const nextName = body.name ? String(body.name).trim().slice(0, 120) : item.name;
+    if (nextName) item.name = nextName;
+    if (body.amount != null) {
+      const amountMinor = moneyField(body.amount, "amount", { positive: true });
+      item.status = statusAfterAmountEdit("expense", amountMinor, paidTotal(item, "expense"), item.status);
+      item.amountMinor = amountMinor;
+    }
+    const nextDate = body.dueDate ? ymd(body.dueDate, "due date") : item.dueDate;
+    item.dueDate = nextDate;
+    if (body.category != null) item.category = oneOf(body.category, EXPENSE_CATEGORIES, "expense category", item.category);
+    const nextFrequency = body.frequency != null ? oneOf(body.frequency, FREQUENCIES, "frequency", item.frequency) : item.frequency;
+    assertScheduleConversionAllowed("expense", item, nextFrequency);
+    if (!item.scheduleId) {
+      item.frequency = nextFrequency;
+      if (nextFrequency !== "once") {
+        item.occurrenceKey = undefined;
+        item.scheduleId = null;
+      }
     }
     if (body.essential != null) item.essential = !!body.essential;
-    if (body.priority != null) item.priority = Math.min(9, Math.max(1, Number(body.priority)));
+    if (body.priority != null) item.priority = priorityField(body.priority, "priority");
     if (body.notes != null) item.notes = String(body.notes).slice(0, 500);
-    if (body.pay != null) {
-      const pay = moneyField(body.pay, "payment", { positive: true });
+
+    const paymentChanged = body.pay != null || body.setPaid != null || body.removePayment != null;
+    if (body.setPaid != null) {
+      const total = moneyField(body.setPaid, "paid total");
+      const date = body.paidDate ? ymd(body.paidDate, "paid date") : item.paidDate;
+      setPaymentsTotal(item, "expense", total, date, body.note);
+    } else if (body.pay != null) {
+      const increment = moneyField(body.pay, "payment", { positive: true });
       const date = ymd(body.paidDate || item.dueDate, "paid date");
-      const paidTotal = addMinorField(item.paidMinor ?? 0, pay, "paid amount");
-      item.payments.push({ amountMinor: pay, date, note: String(body.note || "") });
-      item.paidMinor = paidTotal;
-      item.paidDate = date;
-      if (item.paidMinor >= item.amountMinor) item.status = "paid";
-      else item.status = "partial";
+      addPayment(item, "expense", increment, date, body.note);
+    } else if (body.removePayment != null) {
+      removePayment(item, "expense", body.removePayment);
     }
-    if (body.status && EXPENSE_STATUSES.includes(body.status) && body.pay == null) {
+
+    if (body.status && EXPENSE_STATUSES.includes(body.status) && !paymentChanged) {
       if (body.status === "paid" && item.paidMinor < item.amountMinor) {
-        return json({ error: "Record the full payment before marking a bill paid. Due dates are not auto-paid." }, 400);
+        const err = new Error("Record the full payment before marking a bill paid. Due dates are not auto-paid.");
+        err.status = 400;
+        throw err;
       }
       if (body.status === "partial" && item.paidMinor <= 0) {
-        return json({ error: "Record a payment before marking a bill partially paid." }, 400);
+        const err = new Error("Record a payment before marking a bill partially paid.");
+        err.status = 400;
+        throw err;
       }
       item.status = body.status;
     }
+
+    const key = nextOccurrenceKey("expense", String(membership.householdId), item, {
+      name: item.name,
+      date: item.dueDate,
+      amountMinor: item.amountMinor,
+      frequency: item.frequency,
+    });
+    if (key) {
+      duplicateFilter = { householdId: membership.householdId, occurrenceKey: key, _id: { $ne: item._id } };
+      const duplicate = await Expense.findOne(duplicateFilter).lean();
+      if (duplicate) {
+        const err = new Error("This bill already exists for that date.");
+        err.status = 409;
+        throw err;
+      }
+      item.occurrenceKey = key;
+    }
+
     await item.save();
     if (item.scheduleId) {
       const update = {};
       if (body.name) update.name = item.name;
       if (body.amount != null) update.amountMinor = item.amountMinor;
-      if (body.category) update.category = item.category;
+      if (body.category != null) update.category = item.category;
       if (body.notes != null) update.notes = item.notes;
       if (body.essential != null) update.essential = item.essential;
       if (body.priority != null) update.priority = item.priority;
@@ -93,6 +141,13 @@ export async function PATCH(req, { params }) {
     await audit(membership, session.user.id, "update", "expense", item._id);
     return json({ item });
   } catch (err) {
+    if (err.code === 11000) {
+      if (duplicateFilter) {
+        const existing = await Expense.findOne(duplicateFilter).lean().catch(() => null);
+        if (existing) return json({ error: "This bill already exists for that date." }, 409);
+      }
+      return json({ error: "This bill already exists for that date." }, 409);
+    }
     return handle(err);
   }
 }

@@ -52,3 +52,32 @@ test("expenseCsv marks essentials and escapes notes", () => {
   const lines = csv.split("\r\n");
   assert.match(lines[1], /^"Rent, ""main""",rent_housing,unpaid,monthly,2026-10-03,30000\.00,0\.00,,yes,1,"line1/);
 });
+
+test("CSV cells that could become spreadsheet formulas are neutralized", () => {
+  for (const value of ["=1+1", "+SUM(A1:A9)", "-1+1", "@import", "  =CMD", "\t@cmd"]) {
+    assert.equal(esc(value), `'${value}`, `expected apostrophe prefix for ${JSON.stringify(value)}`);
+  }
+  // Quotes still use normal CSV doubling after the apostrophe prefix.
+  assert.equal(esc('  =HYPERLINK("http://x")'), `"'  =HYPERLINK(""http://x"")"`);
+  assert.equal(esc("total = 5"), "total = 5");
+  assert.equal(esc("+"), "'+");
+});
+
+test("formula neutralization also applies to exported record fields", () => {
+  const csv = incomeCsv([
+    {
+      name: "=HYPERLINK(\"http://evil.test\")",
+      category: "other",
+      status: "expected",
+      frequency: "once",
+      expectedDate: "2026-10-05",
+      amountMinor: 100,
+      receivedMinor: 0,
+      receivedDate: null,
+      notes: "@SUM(1,2)",
+    },
+  ]);
+  const row = csv.split("\r\n")[1];
+  assert.match(row, /^"'=HYPERLINK/);
+  assert.match(row, /"'@SUM\(1,2\)"$/);
+});

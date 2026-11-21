@@ -1,7 +1,18 @@
 import Household from "@/models/Household";
 import Membership from "@/models/Membership";
-import { json, requireSession, requireMembership, parseJson, assertWrite, handle, moneyField } from "@/lib/api";
+import {
+  json,
+  requireSession,
+  requireMembership,
+  parseJson,
+  assertWrite,
+  handle,
+  moneyField,
+  optionalMoneyField,
+  audit,
+} from "@/lib/api";
 import { connectDb } from "@/lib/db";
+import { retryOnDuplicate } from "@/lib/retry";
 
 export async function GET() {
   try {
@@ -21,9 +32,12 @@ export async function POST() {
     const existing = await Membership.findOne({ userId: session.user.id }).lean();
     if (existing) return json({ error: "Household already exists." }, 409);
     const household = await Household.create({ name: "My household" });
-    await Membership.create({ userId: session.user.id, householdId: household._id, role: "owner" });
+    await retryOnDuplicate(() =>
+      Membership.create({ userId: session.user.id, householdId: household._id, role: "owner" })
+    );
     return json({ household, role: "owner" }, 201);
   } catch (err) {
+    if (err.code === 11000) return json({ error: "Household already exists." }, 409);
     return handle(err);
   }
 }
@@ -52,17 +66,18 @@ export async function PATCH(req) {
     if (body.survival && typeof body.survival === "object") {
       const s = body.survival;
       $set.survival = {
-        housingMinor: s.housing != null ? moneyField(s.housing, "housing") : 0,
-        foodMinor: s.food != null ? moneyField(s.food, "food") : 0,
-        utilitiesMinor: s.utilities != null ? moneyField(s.utilities, "utilities") : 0,
-        transportMinor: s.transport != null ? moneyField(s.transport, "transport") : 0,
-        medicalMinor: s.medical != null ? moneyField(s.medical, "medical") : 0,
-        educationMinor: s.education != null ? moneyField(s.education, "education") : 0,
-        otherEssentialMinor: s.other != null ? moneyField(s.other, "other") : 0,
+        housingMinor: optionalMoneyField(s.housing, "housing"),
+        foodMinor: optionalMoneyField(s.food, "food"),
+        utilitiesMinor: optionalMoneyField(s.utilities, "utilities"),
+        transportMinor: optionalMoneyField(s.transport, "transport"),
+        medicalMinor: optionalMoneyField(s.medical, "medical"),
+        educationMinor: optionalMoneyField(s.education, "education"),
+        otherEssentialMinor: optionalMoneyField(s.other, "other"),
         useLocationEstimates: !!s.useLocationEstimates,
       };
     }
     const household = await Household.findByIdAndUpdate(membership.householdId, { $set }, { new: true }).lean();
+    await audit(membership, session.user.id, "update", "household", membership.householdId);
     return json({ household, role: membership.role });
   } catch (err) {
     return handle(err);
@@ -79,6 +94,7 @@ export async function DELETE() {
     const Goal = (await import("@/models/Goal")).default;
     const SpecialEvent = (await import("@/models/SpecialEvent")).default;
     const Scenario = (await import("@/models/Scenario")).default;
+    const DailyCheckin = (await import("@/models/DailyCheckin")).default;
     const AuditLog = (await import("@/models/AuditLog")).default;
     const hid = membership.householdId;
     await Promise.all([
@@ -87,10 +103,14 @@ export async function DELETE() {
       Goal.deleteMany({ householdId: hid }),
       SpecialEvent.deleteMany({ householdId: hid }),
       Scenario.deleteMany({ householdId: hid }),
+      DailyCheckin.deleteMany({ householdId: hid }),
       AuditLog.deleteMany({ householdId: hid }),
       Membership.deleteMany({ householdId: hid }),
       Household.deleteOne({ _id: hid }),
     ]);
+    // The delete itself is written after the cleanup so it is not wiped with
+    // the household's earlier audit trail.
+    await audit(membership, session.user.id, "delete", "household", hid);
     return json({ ok: true });
   } catch (err) {
     return handle(err);

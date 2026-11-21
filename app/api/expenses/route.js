@@ -10,6 +10,7 @@ import {
   ymd,
   paginate,
   audit,
+  priorityField,
 } from "@/lib/api";
 import { EXPENSE_CATEGORIES, FREQUENCIES } from "@/lib/constants";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
@@ -61,7 +62,7 @@ export async function POST(req) {
       originalDueDate: dueDate,
       frequency,
       essential: body.essential !== false,
-      priority: Math.min(9, Math.max(1, Number(body.priority) || 5)),
+      priority: priorityField(body.priority, "priority"),
       notes: String(body.notes || "").slice(0, 500),
     };
     if (!doc.name) return json({ error: "Name is required." }, 400);

@@ -26,7 +26,7 @@ Next.js 15.5.28 (JavaScript), React 19, Tailwind CSS, MongoDB, Mongoose, NextAut
 
 See [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) for the full work log: root causes, account and sign-in design, onboarding flow, security/rate-limit details, test layout, browser checks, deployment notes, and honest limitations.
 
-Current verified state: **92 unit tests**, **182 E2E checks**, and **294 independent arithmetic assertions**, all passing; lint clean, and a successful production build on Next 15.5.28 / React 19.
+Current verified state after the data-integrity audit: **132 unit tests**, **204 E2E checks**, and **299 independent arithmetic assertions**, all passing; lint clean; `npm run indexes` reports `Indexes ensured`; and a successful production build on Next 15.5.28 / React 19.
 
 ## Prerequisites
 
@@ -47,16 +47,16 @@ Set `MONGODB_URI` and a long `NEXTAUTH_SECRET`. Never commit `.env.local`.
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Development server |
-| `npm test` | Unit tests for money, dates, engine, insights, CSV, validation, and daily-saving math |
-| `npm run e2e` | End-to-end API/browser-flow checks against a running server |
-| `npm run verify` | Recomputes plan totals, daily balances, safe-to-spend, runway, health score, agenda, reports, and survival from a seeded month and compares them with the API |
+| `npm test` | Unit tests for money, dates, engine, insights, CSV, validation, record integrity, cache, report categories, retry, index migration, and daily-saving math |
+| `npm run e2e` | End-to-end API/browser-flow checks against a running server, including the data-integrity and household-delete regression block |
+| `npm run verify` | Recomputes plan totals, daily balances, safe-to-spend, runway, health score, agenda, reports, and exact-paisa survival from a seeded month with off-cycle cash, then compares them with the API |
 | `npm run lint` | ESLint |
 | `npm run build` | Production build |
 | `npm start` | Run production server |
 | `npm run indexes` | Ensure MongoDB indexes (needs `.env.local`) |
 | `npm run repair` | One-off repair for pre-`occurrenceKey` databases (safe to re-run) |
 
-For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (immediate sign-in, duplicate-email and account-existence rules), isolation, CRUD, recurrence, payments, daily check-ins, exports, PWA files, and security headers. `npm run verify` seeds one month of known income and bills (including a partial payment), then re-derives every displayed figure independently and fails on any mismatch.
+For E2E, start MongoDB and `npm start`, then run `npm run e2e` in another terminal. It creates throwaway users (`e2e-*@example.com`) and checks auth (immediate sign-in, duplicate-email and account-existence rules), isolation, CRUD, recurrence, payments, daily check-ins, exports, PWA files, security headers, and a data-integrity regression block (overpayment, payment correction, amount-edit guards, duplicate-on-edit, off-cycle cash, cache invalidation, report category parity, unique occurrences, and household-delete cleanup). `npm run verify` seeds one month of known income and bills (including partial and off-cycle payments), then re-derives every displayed figure independently with exact integer/BigInt arithmetic and fails on any mismatch.
 
 ## Accounts and sign-in
 
@@ -70,6 +70,19 @@ Repeating income and bills are stored twice: a hidden **schedule template** and 
 - Payments always land on the occurrence, never on the hidden template.
 - Deleting an occurrence deletes the series (the template plus future unpaid/unreceived rows). Already-paid history is kept.
 - A **partial** unique index on `(householdId, occurrenceKey)` prevents duplicate occurrences. The old `sparse` index was wrong for compound keys because `householdId` is always present; run `npm run repair` on an existing database to migrate it.
+- A unique `userId` index prevents two memberships for one account. `npm run indexes` replaces legacy non-unique indexes and leaves already-correct indexes alone.
+
+## Payment and data-integrity rules
+
+The income and expense `PATCH` endpoints are the source of truth for real cash:
+
+- `receive`/`pay` adds a payment and rejects any amount above the outstanding balance, even by one paisa.
+- `setReceived`/`setPaid` corrects the **total** recorded cash upward, downward, or back to zero; `removePayment` deletes one payment by its id. Both reconcile the payment history, payment date, and status. These correction fields are API-only; no new UI control was added in this audit.
+- Editing an amount cannot hide already-recorded cash. Growing the amount recomputes `paid`/`received` → `partial`; shrinking below recorded cash returns `400`.
+- Editing a one-off record into a duplicate of another row returns `409`, and a once-off row with a payment history cannot be converted into a repeating schedule.
+- `priority` must be an integer from 1 to 9 on create and edit; blank optional survival fields stay `null` so city estimates can apply instead of being treated as zero.
+
+Validation is strict and shared by the API and tests: `ymd` accepts only real calendar dates, `moneyField` uses exact half-up paisa conversion within the Rs 1 trillion cap, `optionalMoneyField`, `paymentIncrement`, `priorityField`, and `loginLimitKey` reject unsafe values, and `addMinorField` rejects totals beyond the safe-integer limit.
 
 ## Example data
 
@@ -116,12 +129,14 @@ Set `ALLOW_INDEXING=true` only on the public production host. Staging should sta
 
 ## Financial assumptions
 
-- Amounts are stored as integer minor units (paisa). Conversion from major units uses round half-up.
-- Received income is added once on the received date. Expected income is projected only.
+- Amounts are stored as integer minor units (paisa). Conversion from major units uses exact decimal round half-up; weekly/daily survival splits use exact BigInt half-up division.
+- Received income is added once on the received date. A legacy receipt with no recorded date falls back to its planned date so real cash is not lost. Expected income is projected only.
+- Plan and report totals are built only from events inside the selected cycle. A receipt or payment dated in another cycle cannot inflate this cycle's totals, events, or category totals.
 - Partial income adds only the received cash now and projects the remaining amount once on its expected date; the two never overlap.
-- Delayed or cancelled income drops its unpaid projection, but money already received stays confirmed. Cancelled bills drop their unpaid remainder, but money already paid stays counted.
+- Delayed or cancelled income drops its unpaid projection, but money already received stays confirmed. Cancelled bills drop their unpaid remainder, but money already paid stays counted. A cancelled row no longer hides an active row in the same category.
 - Unpaid bills keep their original due date. Passing the due date does not mark them paid.
-- Suggested daily spend is an estimate after reserve and essentials due before the next confirmed income.
+- Suggested daily spend is an estimate after reserve and essentials due before the next confirmed income; a confirmed income dated after the plan cannot extend the safe-to-spend horizon.
+- Simulator extra expenses must fall inside the selected planning period. Special events outside it return `outside_planning_period` instead of a false affordability verdict.
 - Projections are not guaranteed outcomes.
 - Survival budget never uses a single poverty-line cutoff as a verdict.
 
@@ -133,7 +148,7 @@ See `SECURITY.md` for the full list and the deployment requirements.
 - JWT sessions, httpOnly cookies, `secure` automatic on HTTPS
 - Authorization on every financial API via household membership
 - Edge middleware: scanner paths → 404, non-standard methods rejected (TRACE is never served), cross-origin and non-JSON writes → 403/415
-- Per-identity sliding windows (auth 20/min, anonymous API 120/min, signed-in API 600/min, pages 240/min, 1500/min per-IP ceiling) with escalating bans; per-email login limit
+- Per-identity sliding windows (auth 20/min, anonymous API 120/min, signed-in API 600/min, pages 240/min, 1500/min per-IP ceiling) with escalating bans; per-email login limit. Consuming a reset token clears the limiter for that token owner's normalized email only, not for an arbitrary body email.
 - Honeypot fields on signup, login, and password reset
 - 64 KB JSON body cap; CSP, HSTS (production), COOP, nosniff, frame-deny headers
 - Rate limits are per process; use Redis at multi-instance scale
@@ -143,7 +158,7 @@ See `SECURITY.md` for the full list and the deployment requirements.
 1. Provision MongoDB (replica set recommended in production).
 2. Set environment variables on the host. Use an **HTTPS** URL in `NEXTAUTH_URL` / `APP_URL`; the session cookie becomes `__Secure-` automatically and middleware matches it. On plain HTTP (local preview), NextAuth uses the unprefixed cookie — do not force the secure prefix in code.
 3. `npm run build && npm start` or use a Node host (Vercel, Render, etc.).
-4. Run `npm run indexes` once. If the database predates the partial occurrence index, run `npm run repair` first.
+4. Run `npm run indexes` once. It migrates legacy sparse occurrence indexes and non-unique `userId` indexes; if the database predates `occurrenceKey`, run `npm run repair` first.
 5. Health: `GET /api/health` liveness, `GET /api/health/ready` database.
 
 ### Backup
@@ -166,7 +181,9 @@ This script hits public health/home routes. It does **not** prove million-user c
 - Shared household invites beyond a single owner membership are not a full invite UI yet (roles exist on memberships).
 - The included k6 script exercises public and health routes only; it does not prove production-scale capacity.
 - Password reset by email requires SMTP. Without SMTP, the reset form reports that delivery is not configured rather than claiming mail was sent. Signup and login never depend on email delivery.
-- Automated coverage is 92 unit tests plus a 182-check end-to-end suite (`npm run e2e`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Automated coverage is 132 unit tests plus a 204-check end-to-end suite (`npm run e2e`) and 299 independent arithmetic assertions (`npm run verify`) against a running server. Browser UI checks are manual; the E2E suite tests the HTTP API and rendered HTML, not every interactive control.
+- Payment corrections (`setReceived`/`setPaid`/`removePayment`) are enforced server-side but have no dedicated correction UI in this release.
+- UI-only audit findings were deliberately left unchanged to avoid visual churn: hardcoded PKR formatting in some labels, stale KPI cards, read-only write controls, and a past "Next income" label. The one UI change was adding the `outside_planning_period` verdict label on the events page.
 - Household deletion and recurring-occurrence generation use separate writes, not a MongoDB transaction, so a crash mid-operation can leave partial state.
 - The service worker provides only an offline fallback page. It deliberately does not cache records or API responses, so there is no offline data entry.
 - `npm audit --omit=dev` still reports advisories in `next` (transitive `postcss`), `next-auth` (via `nodemailer`), and `nodemailer`; clearing them needs major upgrades. `next-auth@4.24.15` requires `nodemailer ^7.0.7`, so the nodemailer advisory cannot be removed without replacing or upgrading the auth stack. Do not expose SMTP credentials beyond what password reset needs.

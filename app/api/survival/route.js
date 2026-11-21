@@ -2,7 +2,16 @@ import Household from "@/models/Household";
 import { survivalBudget } from "@/lib/engine/survivalBudget";
 import { runPlan } from "@/lib/engine/planningEngine";
 import { loadPlanInput, defaultPeriod } from "@/lib/planContext";
-import { json, requireSession, requireMembership, parseJson, assertWrite, handle, moneyField } from "@/lib/api";
+import {
+  json,
+  requireSession,
+  requireMembership,
+  parseJson,
+  assertWrite,
+  handle,
+  optionalMoneyField,
+  audit,
+} from "@/lib/api";
 import { todayInZone } from "@/lib/dates";
 
 export async function GET() {
@@ -41,13 +50,15 @@ export async function PUT(req) {
     assertWrite(membership);
     const body = await parseJson(req);
     const survival = {
-      housingMinor: body.housing != null ? moneyField(body.housing) : 0,
-      foodMinor: body.food != null ? moneyField(body.food) : 0,
-      utilitiesMinor: body.utilities != null ? moneyField(body.utilities) : 0,
-      transportMinor: body.transport != null ? moneyField(body.transport) : 0,
-      medicalMinor: body.medical != null ? moneyField(body.medical) : 0,
-      educationMinor: body.education != null ? moneyField(body.education) : 0,
-      otherEssentialMinor: body.other != null ? moneyField(body.other) : 0,
+      // Blank fields stay null so survivalBudget can apply city estimates when
+      // useLocationEstimates is enabled instead of silently treating them as 0.
+      housingMinor: optionalMoneyField(body.housing, "housing"),
+      foodMinor: optionalMoneyField(body.food, "food"),
+      utilitiesMinor: optionalMoneyField(body.utilities, "utilities"),
+      transportMinor: optionalMoneyField(body.transport, "transport"),
+      medicalMinor: optionalMoneyField(body.medical, "medical"),
+      educationMinor: optionalMoneyField(body.education, "education"),
+      otherEssentialMinor: optionalMoneyField(body.other, "other"),
       useLocationEstimates: !!body.useLocationEstimates,
     };
     const $set = { survival };
@@ -59,6 +70,7 @@ export async function PUT(req) {
       }));
     }
     await Household.updateOne({ _id: membership.householdId }, { $set });
+    await audit(membership, session.user.id, "update", "survival", membership.householdId);
     return GET();
   } catch (err) {
     return handle(err);

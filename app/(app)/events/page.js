@@ -9,6 +9,7 @@ const LABELS = {
   comfortably_affordable: "Comfortably affordable",
   affordable_with_adjustments: "Affordable only with adjustments",
   currently_unaffordable: "Currently unaffordable",
+  outside_planning_period: "Outside this planning period",
 };
 
 const KINDS = [

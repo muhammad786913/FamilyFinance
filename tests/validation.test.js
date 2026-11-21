@@ -1,6 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { ymd, moneyField, nonNegativeNumberField, nonNegativeIntegerField, addMinorField, oneOf } = require("../lib/validation");
+const {
+  ymd,
+  moneyField,
+  optionalMoneyField,
+  nonNegativeNumberField,
+  nonNegativeIntegerField,
+  addMinorField,
+  paymentIncrement,
+  priorityField,
+  oneOf,
+  loginLimitKey,
+} = require("../lib/validation");
 const { MAX_INPUT_MAJOR, MAX_INPUT_MINOR } = require("../lib/money");
 
 test("ymd accepts real calendar dates", () => {
@@ -72,4 +83,45 @@ test("formPayload sends false for unchecked checkboxes", () => {
   assert.equal(payload.name, "Rent");
   assert.equal(payload.estimated, true);
   assert.equal(payload.essential, false);
+});
+
+test("optionalMoneyField leaves blanks null but validates supplied values", () => {
+  assert.equal(optionalMoneyField(undefined), null);
+  assert.equal(optionalMoneyField("  "), null);
+  assert.equal(optionalMoneyField("12.34"), 1234);
+  assert.equal(optionalMoneyField(0), 0);
+  assert.throws(() => optionalMoneyField("-1"), /Invalid amount/);
+});
+
+test("paymentIncrement rejects overpayment even below the money limit", () => {
+  assert.equal(paymentIncrement(300, 200, 500), 500);
+  assert.equal(paymentIncrement(undefined, 0, 500), 0);
+  assert.throws(() => paymentIncrement(400, 101, 500), /exceeds the outstanding amount/);
+  assert.throws(() => paymentIncrement(501, 0, 500), /Invalid payment/);
+  assert.throws(() => paymentIncrement(1, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER), /supported limit/);
+});
+
+test("priorityField is a bounded integer, not a coerced NaN", () => {
+  assert.equal(priorityField(undefined), 5);
+  assert.equal(priorityField(""), 5);
+  assert.equal(priorityField("2"), 2);
+  assert.equal(priorityField(9), 9);
+  for (const value of ["0", "10", "1.5", "abc", Infinity, NaN]) {
+    assert.throws(() => priorityField(value), /Invalid priority/, `expected rejection for ${String(value)}`);
+  }
+});
+
+test("loginLimitKey normalizes an address without trusting arbitrary input", () => {
+  assert.equal(loginLimitKey("  Ali@Example.COM "), "login:ali@example.com");
+  assert.equal(loginLimitKey(""), null);
+  assert.equal(loginLimitKey(null), null);
+});
+
+test("password reset clears the limiter for the token owner, not the request body", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const route = fs.readFileSync(path.join(__dirname, "../app/api/auth/reset-password/route.js"), "utf8");
+  assert.match(route, /User\.findById\(row\.userId\)/);
+  assert.match(route, /loginLimitKey\(owner\?\.email\)/);
+  assert.doesNotMatch(route, /resetLimit\(`login:\$\{String\(body\.email/);
 });

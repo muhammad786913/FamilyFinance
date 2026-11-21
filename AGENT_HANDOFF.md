@@ -8,11 +8,12 @@ FamilyFinance is a full-stack household cash-flow planner for Pakistani families
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` | 92/92 pass |
-| `npm.cmd run e2e` | 182/182 pass against a running production server |
-| `npm.cmd run verify` | 294/294 arithmetic assertions pass (count scales with cycle length) |
+| `npm.cmd test` | 132/132 pass |
+| `npm.cmd run e2e` | 204/204 pass against a running production server |
+| `npm.cmd run verify` | 299/299 arithmetic assertions pass (count scales with cycle length) |
 | `npm.cmd run lint` | clean |
-| `npm.cmd run build` | succeeds (Next 15.5.28) |
+| `npm.cmd run indexes` | `Indexes ensured` (migrates legacy occurrence/userId indexes) |
+| `npm.cmd run build` | succeeds (Next 15.5.28, no duplicate-index warning) |
 | Live smoke test | login → seven-step selection-first onboarding with live preview → dashboard; daily saving card logged Rs 10 (happy coin animation), Rs 100 (sad cloud), then Rs 0 (100% saved); signed-in home gate and delayed-income cash-flow behaviour checked in a browser |
 | Node / npm | v24.19.0 / 11.17.0 |
 | MongoDB | 9.0, local `mongodb://127.0.0.1:27017/familyfinance` |
@@ -154,6 +155,42 @@ Fix and guardrails:
 
 Regression coverage: five net new unit tests in `tests/planningEngine.test.js` cover delayed projections, retained receipts, cancelled income with and without receipts, cancelled expenses and total reconciliation; the partial-income test now asserts both dated events. `scripts/e2e.js` compares plan, insights, reports and simulator baseline before and after delayed, restored, partial and cancelled income, plus partial and cancelled bills, and checks category parity and no double counting.
 
+### 3e. Data Integrity & Edge Case Audit (2026-11-21)
+
+The whole project was inspected before any edit. Only confirmed bugs were fixed; all code changes are JavaScript, and UI changes were limited to the required off-cycle verdict label.
+
+**Money and rounding**
+
+- `lib/money.js` now converts major units with exact decimal half-up rounding through string/BigInt logic. Binary-float cases `1.005 → 101`, `1.015 → 102`, `8.165 → 817`, `0.145 → 15` are covered. Onboarding `minorOf()`/`moneyProblem()` now call the shared helper, so preview and stored amounts cannot disagree.
+- `lib/engine/survivalBudget.js` uses exact BigInt `roundRatio()` for weekly/daily splits. February 2026 with monthly `122` paisa now gives weekly `31` (previously float `Math.round` gave `30`). `scripts/verify-calc.js` recomputes those fields independently with BigInt instead of `Math.round`.
+
+**Calendar and cycle integrity**
+
+- `lib/engine/planningEngine.js` derives totals from dated events inside the selected cycle, not from row-level payment fields. A `2026-09-20` receipt on a `2026-10-15` income row no longer inflates October's totals; a full payment dated outside the cycle no longer inflates spend. Partial rows keep only their in-cycle projected remainder.
+- Receipts/payments without a recorded date fall back to the planned date, so legacy real cash is not lost. Safe-to-spend clamps its horizon to the plan and ignores confirmed income dated after it.
+- `eventAffordability()` returns `verdict: "outside_planning_period"` for dates outside the cycle; `app/(app)/events/page.js` displays "Outside this planning period". Simulator extra expenses outside the cycle are rejected with `400` by `lib/scenarioPayload.js`.
+
+**Payment and write integrity**
+
+- New `lib/recordIntegrity.js` centralises payment add/set/remove, status reconciliation, amount-edit guards, duplicate occurrence keys, and the paid-once → recurring guard.
+- Income/expense `PATCH` endpoints reject overpayment by even one paisa. Correct the recorded total with `setReceived`/`setPaid`, remove one payment with `removePayment`, and never let an amount edit hide recorded cash. These are API-only corrections; no UI was added.
+- Duplicate detection now also runs on edit. `priority` is a bounded integer 1–9. Blank survival fields stay `null` so city estimates apply. Household timezone is the fallback for date defaults.
+- Reset-password consumes its token and clears the login limiter only for that token owner's normalized email via `loginLimitKey()`, closing the body-email limiter bypass.
+
+**Consistency, caching, security, cleanup**
+
+- `lib/cache.js` clones every read/write, sweeps expired keys, caps entries at 500, and exposes `cacheSize()`/`cacheClear()`. A category-filtered report can no longer mutate the shared plan input and poison `/api/plan`, `/api/insights`, or later reports. Household settings and survival settings invalidate the relevant caches and write audit rows.
+- `lib/reportCategories.js` is now period-aware and shared by reports and insights. A cancelled row no longer overwrites an active row in the same category, and a payment dated in another cycle no longer appears in this cycle's category actuals. Off-range `/api/insights` uses today's cycle for runway.
+- CSV export prefixes leading `= + - @` (including after whitespace) with an apostrophe so spreadsheets treat notes and names as text.
+- `lib/retry.js` retries duplicate-key races once for recurring occurrence upserts and household membership creation. `scripts/ensure-indexes.js` replaces legacy sparse/non-unique indexes with the correct partial unique and unique `userId` indexes; `models/Membership.js` no longer declares the same `userId` index twice, removing the build warning.
+- Household deletion now also removes `DailyCheckin` rows, writes an audit row, and E2E verifies a fresh household for the same user contains no leaked records.
+
+**Regression coverage for every fix**
+
+New unit files: `tests/recordIntegrity.test.js`, `tests/cache.test.js`, `tests/reportCategories.test.js`, `tests/retry.test.js`, `tests/ensureIndexes.test.js`. Existing money, CSV, validation, planning-engine, survival, scenario, onboarding, and reset-password parity tests were extended. `scripts/e2e.js` adds off-range runway parity, explicit off-cycle verdicts, off-period simulator rejection, and a data-integrity block covering cache poisoning, settings invalidation, off-cycle cash, overpayment, payment correction, amount edits, duplicate-on-edit, paid-once conversion, priority, mixed cancelled categories, concurrent occurrence generation, CSV formulas, and household-delete cleanup. `scripts/verify-calc.js` seeds off-cycle cash and independently recomputes totals from in-period events with exact integer/BigInt arithmetic.
+
+Result: **132/132 unit**, **204/204 E2E**, **299/299 verify**, lint clean, indexes ensured, final production build successful. No failures were hidden, weakened, or skipped.
+
 ### 4. Security and abuse hardening
 
 - `middleware.js` + `lib/botGuard.js` + `lib/rateLimit.js`:
@@ -228,19 +265,26 @@ Regression coverage: five net new unit tests in `tests/planningEngine.test.js` c
 10. **Email verification is not part of auth.** Accounts are ready at signup, signup sends no mail, and login has no verification prompt or endpoint. The `authorize` check that threw `EmailNotVerified` was removed earlier; the remaining legacy token endpoints, model, and backfill were deleted, so do not reintroduce a verification gate without a deliberate product decision.
 11. **A status label is not a payment.** Income/expense status is editable from the list, but `received`/`paid` and `partial` are rejected by the API unless real payment records exist. Do not remove those guards: the planner treats only recorded cash as confirmed.
 12. **A status change must not erase or invent cash.** Delayed/cancelled income removes only the unpaid projection, cancelled bills remove only the unpaid remainder, and partial income counts `receivedMinor` once plus the remaining projection once. Do not restore the old `if (status === "cancelled") continue` shortcut in the event builders, and keep every cash-flow view on `runPlan()`.
+13. **Binary floats are not money.** `Math.round(* 100)` could turn `1.005` into `100` paisa and survival splits could lose one paisa. Use `majorToMinor()` and exact `roundRatio()` in `lib/money.js`/`lib/engine/survivalBudget.js`; do not reintroduce float arithmetic for stored or derived minor units.
+14. **Row-level payment fields are not cycle totals.** Reading `receivedMinor`/`paidMinor` directly let a receipt or payment dated in another month inflate this month's totals and category actuals. Build cash flow from dated events inside the selected cycle and keep date-less legacy payments on the planned date.
+15. **Shared caches must be immutable to callers.** Category-filtered reports mutated the cached plan object and poisoned later plan/insights/report reads. Every cache read and write is cloned; settings writes invalidate the right household keys and write audit rows.
+16. **Editable status is not payment correction.** `receive`/`pay` must reject overpayment, while `setReceived`/`setPaid`/`removePayment` are the only ways to lower or delete recorded cash. Amount edits must not shrink below cash already recorded, and duplicate checks must run on edit as well as create.
+17. **Limiters must key off trusted identity.** Reset-password consumption cleared the login bucket using the request body email instead of the token owner. `loginLimitKey()` now normalizes and keys from the authenticated owner.
+18. **Constraints and cleanup were incomplete.** Legacy sparse occurrence indexes and duplicate `userId` indexes weakened uniqueness; household deletion left `DailyCheckin` rows; CSV notes could become spreadsheet formulas; concurrent occurrence upserts could race. The index migration, retry helper, CSV escaping, and cleanup delete are part of the integrity fix.
 
 ## Test layout and coverage
 
 - `tests/dates.test.js`, `tests/money.test.js`, `tests/recurring.test.js`, `tests/planning.test.js`, `tests/survival.test.js`
 - `tests/insights.test.js`, `tests/csv.test.js`, `tests/validation.test.js`, `tests/security.test.js`, `tests/onboarding.test.js`, `tests/dailySavings.test.js`
+- `tests/recordIntegrity.test.js`, `tests/cache.test.js`, `tests/reportCategories.test.js`, `tests/retry.test.js`, `tests/ensureIndexes.test.js` cover the data-integrity fixes; existing money, CSV, validation, planning-engine, survival, scenario, onboarding, and reset-password suites were extended for the same fixes.
 - `tests/calculation-properties.test.js` runs seeded random previews and monthly plans across the full allowed input range, checking exact paisa totals, every plan identity, the daily balance chain, and a 31-day daily-wage month at the cap.
 - `tests/onboarding.test.js` covers email-shape validation, monthly/weekly/daily/yearly conversion, preview totals, shortfall, blank-field safety, and exact math at the input cap.
 - `tests/recurring.test.js` covers unique monthly occurrence keys plus real weekly, daily, and yearly pay dates (including a 30-day cycle with five weekly paydays).
 - `tests/dailySavings.test.js` covers all five ratings, zero budgets, the stored-budget snapshot, unlogged days, net-negative cycles, invalid/unsafe inputs, overflow, and the seven-day window.
 - `tests/planningEngine.test.js` covers status-aware cash flow: delayed projections, retained receipts, cancelled income/bills, partial income events, and reconciliation between totals and the day-by-day plan.
-- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, duplicate-email rejection, account-existence checks, onboarding, recurring income/expense, payments, editable statuses and payment guards, immediate cross-view agreement between plan/insights/reports/simulator after delayed/partial/cancelled income and partial/cancelled bills, category parity, no double counting, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy.
+- `scripts/e2e.js` covers signup/login/session, malformed-email rejection, duplicate-email rejection, account-existence checks, onboarding, recurring income/expense, payments, editable statuses and payment guards, immediate cross-view agreement between plan/insights/reports/simulator after delayed/partial/cancelled income and partial/cancelled bills, category parity, no double counting, daily check-ins (upsert, backfill, validation, cap, isolation), goals/events/simulator/survival, CSV/JSON export, demo seed/clear, cross-household isolation, security headers, auth redirects, bot/abuse controls (scanner 404, TRACE 405, CSRF 403, 415/413, honeypot, burst 429 + Retry-After), PWA assets, and service-worker cache privacy. The data-integrity block adds cache poisoning and settings-invalidation checks, off-cycle cash and verdicts, off-period simulator rejection, overpayment and payment correction, amount-edit guards, duplicate-on-edit, paid-once conversion, priority, mixed cancelled categories, concurrent occurrence generation, CSV formulas, and household-delete cleanup with a fresh household.
 - Test harnesses use a separate simulated IP per client so one bucket is not exhausted.
-- `scripts/verify-calc.js` (`npm run verify`) seeds a known month and independently recomputes plan totals, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget.
+- `scripts/verify-calc.js` (`npm run verify`) seeds a known month with off-cycle payments and independently recomputes plan totals from in-period events, the day-by-day balance chain, safe-to-spend, runway, health score, agenda, reports, and the survival budget with exact integer/BigInt arithmetic. The assertion count scales with the cycle length.
 
 ## Manual browser checks performed
 
@@ -272,13 +316,16 @@ Regression coverage: five net new unit tests in `tests/planningEngine.test.js` c
 - The service worker does not cache authenticated data, so there is no offline record access.
 - The bundled k6 script covers public routes only; it does not prove production-scale capacity.
 - E2E tests the HTTP API and rendered HTML; interactive controls were spot-checked manually, not exhaustively automated.
+- Payment corrections (`setReceived`, `setPaid`, `removePayment`) are enforced server-side and regression-tested through the API, but this release has no dedicated correction UI.
+- UI-only audit findings were left unchanged on purpose: hardcoded PKR formatting in some labels, stale KPI cards, read-only write controls, and a past "Next income" label. The only UI addition is the `outside_planning_period` verdict label.
+- The retry helper covers duplicate-key races but is not a distributed transaction; the partial unique indexes remain the real duplicate defense. Household delete and occurrence generation are still not transactional.
 - The available desktop browser cannot shrink below 800px, so 375px phone rendering was verified through the responsive rules (64px side rail, stacked cards) rather than device emulation.
 - White text on the bright-cyan primary buttons remains at 2.8:1 contrast. Changing it would require either a darker button background or navy text, both of which alter the agreed palette/visual language; the cyan accent is otherwise always paired with navy text.
 
 ## Deployment notes
 
 - Use HTTPS URLs in `NEXTAUTH_URL`/`APP_URL`; do not hardcode the `__Secure-` cookie prefix.
-- Run `npm run repair` once on a database created before the partial occurrence index, then `npm run indexes`.
+- Run `npm run indexes` on startup/deploy: it migrates legacy sparse occurrence indexes and non-unique `userId` indexes. If the database predates `occurrenceKey`, run `npm run repair` first. Verify with `npm run indexes`; it prints `Indexes ensured` and leaves correct indexes untouched.
 - Configure SMTP before relying on password reset.
 - Ensure MongoDB backups (`mongodump`/Atlas) and verify restores.
 - `ALLOW_INDEXING=true` only on the public production host.

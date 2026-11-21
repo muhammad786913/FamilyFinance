@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { survivalBudget } = require("../lib/engine/survivalBudget");
+const { survivalBudget, roundRatio } = require("../lib/engine/survivalBudget");
 
 test("does not use a single income threshold", () => {
   const small = survivalBudget({
@@ -56,4 +56,28 @@ test("survival budget rejects totals that exceed safe minor-unit calculations", 
     }),
     /Projected income total exceeds/
   );
+});
+
+test("weekly and daily survival amounts divide exact paisa half-up", () => {
+  const february = survivalBudget({
+    householdSize: 1,
+    location: "Other",
+    asOfDate: "2026-02-01",
+    housingMinor: 122,
+    foodMinor: 0,
+    utilitiesMinor: 0,
+    transportMinor: 0,
+    medicalMinor: 0,
+    educationMinor: 0,
+    otherEssentialMinor: 0,
+    useLocationEstimates: false,
+    confirmedIncomeMinor: 0,
+    expectedIncomeMinor: 0,
+  });
+  // 122 / 28 * 7 is exactly 30.5: float Math.round gives 30, exact half-up gives 31.
+  assert.equal(february.weeklyMinor, 31);
+  assert.equal(february.dailyMinor, 4);
+  assert.equal(roundRatio(5, 2), 3);
+  assert.equal(roundRatio(1, 3), 0);
+  assert.throws(() => roundRatio(1, 0), /Invalid ratio denominator/);
 });

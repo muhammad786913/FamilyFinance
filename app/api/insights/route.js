@@ -3,6 +3,7 @@ import { runPlan } from "@/lib/engine/planningEngine";
 import { loadPlanInput, defaultPeriod, survivalFor } from "@/lib/planContext";
 import { addDays, addMonthsClamped, monthBounds, todayInZone } from "@/lib/dates";
 import { healthScore, buildAgenda, runwayDays } from "@/lib/insights";
+import { categoryBreakdown } from "@/lib/reportCategories";
 import { json, requireSession, requireMembership, handle, ymd } from "@/lib/api";
 
 export async function GET(req) {
@@ -28,15 +29,17 @@ export async function GET(req) {
         ? plan
         : runPlan(await loadPlanInput(membership.householdId, today, horizon));
     const agenda = buildAgenda(agendaPlan, today, 14);
-    const runway = runwayDays(plan, today);
     // A custom `from`/`to` may not include today. In that case load the cycle
-    // that does, because "safe to spend today" must come from today's row.
+    // that does, because "safe to spend today" and the runway must both come
+    // from the same repaired timeline.
+    let todayPlan = plan;
     let todayRow = plan.daily.find((d) => d.date === today) || null;
     if (!todayRow) {
       const bounds = monthBounds(today, household.planningStartDay || 1);
-      const currentPlan = runPlan(await loadPlanInput(membership.householdId, bounds.start, bounds.end));
-      todayRow = currentPlan.daily.find((d) => d.date === today) || null;
+      todayPlan = runPlan(await loadPlanInput(membership.householdId, bounds.start, bounds.end));
+      todayRow = todayPlan.daily.find((d) => d.date === today) || null;
     }
+    const runway = runwayDays(todayPlan, today);
 
     const trend = [];
     for (let offset = -5; offset <= 0; offset += 1) {
@@ -55,13 +58,10 @@ export async function GET(req) {
       });
     }
 
-    const categories = {};
-    for (const exp of input.expenses) {
-      const row = categories[exp.category] || { planned: 0, paid: 0 };
-      if (exp.status !== "cancelled") row.planned += exp.amountMinor;
-      row.paid += exp.paidMinor || 0;
-      categories[exp.category] = row;
-    }
+    const breakdown = categoryBreakdown(input.expenses, { start: from, end: to });
+    const categories = Object.fromEntries(
+      Object.entries(breakdown).map(([category, row]) => [category, { planned: row.planned, paid: row.actual }])
+    );
 
     return json({
       period: { from, to },

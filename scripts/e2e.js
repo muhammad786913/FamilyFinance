@@ -172,11 +172,13 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const A = makeClient(ipFor(11));
   const B = makeClient(ipFor(12));
   const C = makeClient(ipFor(13));
+  const D = makeClient(ipFor(14));
   const stamp = Date.now();
   const password = "TestPass123!";
   const aEmail = `e2e-a-${stamp}@example.com`;
   const bEmail = `e2e-b-${stamp}@example.com`;
   const cEmail = `e2e-c-${stamp}@example.com`;
+  const dEmail = `e2e-d-${stamp}@example.com`;
 
   const today = pktToday();
   const { from: monthStart, to: monthEnd, days: daysInMonth } = monthBounds(today);
@@ -601,6 +603,11 @@ function makeClient(ip = E2E_CLIENT_IP) {
     offRangeInsights.status === 200 && offRangeInsights.data?.todayRow?.date === today,
     offRangeInsights.data?.todayRow?.date
   );
+  check(
+    "off-range insights uses today's cycle for the runway too",
+    offRangeInsights.data?.runway === insights.data?.runway,
+    { offRange: offRangeInsights.data?.runway, current: insights.data?.runway }
+  );
 
   // ---------- daily saving check-ins ----------
   const checkinStart = await A.call("/api/checkins");
@@ -689,6 +696,324 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const filtered = await A.call("/api/reports?category=groceries");
   check("report category filter", Object.keys(filtered.data?.byCategory || {}).length === 0, filtered.data?.byCategory);
 
+  // ---------- data-integrity audit regressions ----------
+  const previousCycleDate = addDays(monthStart, -15);
+  const nextCycleDate = addDays(monthEnd, 1);
+
+  // A category-filtered report must not mutate the shared cached plan input.
+  const unfilteredBefore = await A.call("/api/reports");
+  const rentOnlyReport = await A.call("/api/reports?category=rent_housing");
+  const unfilteredAfter = await A.call("/api/reports");
+  const rentKeys = Object.keys(rentOnlyReport.data?.byCategory || {});
+  check(
+    "filtered report cannot poison the cached unfiltered report",
+    rentOnlyReport.status === 200 &&
+      rentKeys.length === 1 &&
+      rentKeys[0] === "rent_housing" &&
+      JSON.stringify(unfilteredAfter.data?.byCategory) === JSON.stringify(unfilteredBefore.data?.byCategory),
+    { rentKeys, before: unfilteredBefore.data?.byCategory, after: unfilteredAfter.data?.byCategory }
+  );
+
+  // Household settings and survival settings must invalidate their plan caches.
+  const reserveBase = await A.call("/api/plan");
+  const reserveBefore = reserveBase.data?.plan?.daily?.[0]?.availableAfterReserveMinor;
+  const reservePatch = await A.call("/api/household", { method: "PATCH", body: { emergencyReserve: 6000 } });
+  const reserveAfter = await A.call("/api/plan");
+  check(
+    "household settings invalidate the plan cache",
+    reservePatch.status === 200 &&
+      reserveAfter.data?.plan?.daily?.[0]?.availableAfterReserveMinor === reserveBefore - 100000,
+    { before: reserveBefore, after: reserveAfter.data?.plan?.daily?.[0]?.availableAfterReserveMinor }
+  );
+  await A.call("/api/household", { method: "PATCH", body: { emergencyReserve: 5000 } });
+
+  const survivalBase = await A.call("/api/survival");
+  const survivalEstimates = await A.call("/api/survival", {
+    method: "PUT",
+    body: {
+      housing: "",
+      food: "",
+      utilities: "",
+      transport: "",
+      medical: "",
+      education: "",
+      other: "",
+      useLocationEstimates: true,
+    },
+  });
+  const survivalAfter = await A.call("/api/survival");
+  check(
+    "survival settings invalidate the cache and blank fields use city estimates",
+    survivalBase.status === 200 &&
+      survivalEstimates.status === 200 &&
+      survivalAfter.data?.result?.monthlyEssentialMinor > 0 &&
+      survivalAfter.data?.result?.monthlyEssentialMinor !== survivalBase.data?.result?.monthlyEssentialMinor,
+    { before: survivalBase.data?.result?.monthlyEssentialMinor, after: survivalAfter.data?.result?.monthlyEssentialMinor }
+  );
+
+  // A real payment dated in another cycle cannot inflate this cycle's totals.
+  const crossBase = await A.call("/api/plan");
+  const crossReportBase = await A.call("/api/reports");
+  const crossInsightsBase = await A.call("/api/insights");
+  const categoryActual = (rows, field) =>
+    Object.values(rows || {}).reduce((total, row) => total + (row[field] || 0), 0);
+  const crossIncome = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Cross Cycle Receipt", amount: 1000, expectedDate: futureDate, frequency: "once" },
+  });
+  const crossIncomeId = crossIncome.data?.item?._id;
+  const crossReceipt = await A.call(`/api/income/${crossIncomeId}`, {
+    method: "PATCH",
+    body: { receive: 1000, receivedDate: previousCycleDate },
+  });
+  const crossAfterIncome = await A.call("/api/plan");
+  const incomeTotals = ["confirmedIncomeMinor", "expectedIncomeLeftMinor", "endingProjectedMinor"];
+  check(
+    "off-cycle receipt is excluded from totals and has no in-cycle event",
+    crossReceipt.status === 200 &&
+      incomeTotals.every(
+        (field) => crossAfterIncome.data?.plan?.totals?.[field] === crossBase.data?.plan?.totals?.[field]
+      ) &&
+      !(crossAfterIncome.data?.plan?.daily || []).some((day) =>
+        (day.events || []).some((event) => event.id === crossIncomeId)
+      ),
+    { before: crossBase.data?.plan?.totals, after: crossAfterIncome.data?.plan?.totals, receipt: crossReceipt.data?.item }
+  );
+  await A.call(`/api/income/${crossIncomeId}`, { method: "DELETE" });
+
+  const crossBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Cross Cycle Bill", amount: 1000, dueDate: futureDate, frequency: "once" },
+  });
+  const crossBillId = crossBill.data?.item?._id;
+  const crossPayment = await A.call(`/api/expenses/${crossBillId}`, {
+    method: "PATCH",
+    body: { pay: 1000, paidDate: previousCycleDate },
+  });
+  const crossAfterBill = await A.call("/api/plan");
+  const crossReportAfter = await A.call("/api/reports");
+  const crossInsightsAfter = await A.call("/api/insights");
+  const billTotals = ["actualSpendMinor", "unpaidBillsMinor", "endingProjectedMinor"];
+  check(
+    "off-cycle payment is excluded from spend, categories, and in-cycle events",
+    crossPayment.status === 200 &&
+      billTotals.every((field) => crossAfterBill.data?.plan?.totals?.[field] === crossBase.data?.plan?.totals?.[field]) &&
+      !(crossAfterBill.data?.plan?.daily || []).some((day) =>
+        (day.events || []).some((event) => event.id === crossBillId)
+      ) &&
+      categoryActual(crossReportAfter.data?.byCategory, "actual") ===
+        categoryActual(crossReportBase.data?.byCategory, "actual") &&
+      categoryActual(crossInsightsAfter.data?.categories, "paid") ===
+        categoryActual(crossInsightsBase.data?.categories, "paid"),
+    {
+      before: crossBase.data?.plan?.totals,
+      after: crossAfterBill.data?.plan?.totals,
+      reportActual: [categoryActual(crossReportBase.data?.byCategory, "actual"), categoryActual(crossReportAfter.data?.byCategory, "actual")],
+      insightsPaid: [categoryActual(crossInsightsBase.data?.categories, "paid"), categoryActual(crossInsightsAfter.data?.categories, "paid")],
+    }
+  );
+  await A.call(`/api/expenses/${crossBillId}`, { method: "DELETE" });
+
+  // A payment cannot exceed the planned amount, even by one paisa.
+  const overBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Overpay Guard", amount: 100, dueDate: futureDate, frequency: "once" },
+  });
+  const overBillId = overBill.data?.item?._id;
+  await A.call(`/api/expenses/${overBillId}`, { method: "PATCH", body: { pay: 100, paidDate: futureDate } });
+  const overIncrement = await A.call(`/api/expenses/${overBillId}`, {
+    method: "PATCH",
+    body: { pay: 1, paidDate: futureDate },
+  });
+  const overSet = await A.call(`/api/expenses/${overBillId}`, { method: "PATCH", body: { setPaid: 101 } });
+  const overList = await A.call("/api/expenses?limit=50");
+  const overRow = (overList.data?.items || []).find((row) => row._id === overBillId);
+  check(
+    "overpayment is rejected for both increment and exact-total corrections",
+    overIncrement.status === 400 &&
+      overSet.status === 400 &&
+      overRow?.paidMinor === 10000,
+    { increment: overIncrement.data, set: overSet.data, recorded: overRow?.paidMinor }
+  );
+  await A.call(`/api/expenses/${overBillId}`, { method: "DELETE" });
+
+  // Editing an amount must reconcile status and never hide recorded cash.
+  const editBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Amount Edit Guard", amount: 100, dueDate: futureDate, frequency: "once" },
+  });
+  const editBillId = editBill.data?.item?._id;
+  await A.call(`/api/expenses/${editBillId}`, { method: "PATCH", body: { pay: 100, paidDate: futureDate } });
+  const shrink = await A.call(`/api/expenses/${editBillId}`, { method: "PATCH", body: { amount: 80 } });
+  const grow = await A.call(`/api/expenses/${editBillId}`, { method: "PATCH", body: { amount: 150 } });
+  check(
+    "amount edits cannot go below recorded cash but can reconcile status upward",
+    shrink.status === 400 &&
+      grow.status === 200 &&
+      grow.data?.item?.amountMinor === 15000 &&
+      grow.data?.item?.paidMinor === 10000 &&
+      grow.data?.item?.status === "partial",
+    { shrink: shrink.data, grow: grow.data?.item }
+  );
+  await A.call(`/api/expenses/${editBillId}`, { method: "DELETE" });
+
+  // Payment corrections are available through setPaid / removePayment.
+  const correctionBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Payment Correction", amount: 100, dueDate: futureDate, frequency: "once" },
+  });
+  const correctionId = correctionBill.data?.item?._id;
+  const partOne = await A.call(`/api/expenses/${correctionId}`, {
+    method: "PATCH",
+    body: { pay: 40, paidDate: futureDate },
+  });
+  const partTwo = await A.call(`/api/expenses/${correctionId}`, {
+    method: "PATCH",
+    body: { pay: 60, paidDate: futureDate },
+  });
+  const corrected = await A.call(`/api/expenses/${correctionId}`, {
+    method: "PATCH",
+    body: { setPaid: 40, note: "corrected" },
+  });
+  const removed = await A.call(`/api/expenses/${correctionId}`, {
+    method: "PATCH",
+    body: { removePayment: corrected.data?.item?.payments?.[0]?._id },
+  });
+  check(
+    "setPaid and removePayment reconcile payment history and status",
+    partOne.status === 200 &&
+      partTwo.data?.item?.payments?.length === 2 &&
+      corrected.data?.item?.paidMinor === 4000 &&
+      corrected.data?.item?.payments?.length === 1 &&
+      corrected.data?.item?.status === "partial" &&
+      removed.data?.item?.paidMinor === 0 &&
+      removed.data?.item?.status === "unpaid" &&
+      removed.data?.item?.payments?.length === 0,
+    {
+      history: partTwo.data?.item?.payments,
+      corrected: corrected.data?.item,
+      removed: removed.data?.item,
+    }
+  );
+  await A.call(`/api/expenses/${correctionId}`, { method: "DELETE" });
+
+  // Editing a one-off row into a business duplicate must be rejected.
+  const dupSource = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Duplicate Source", amount: 100, expectedDate: futureDate, frequency: "once" },
+  });
+  const dupTarget = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Duplicate Target", amount: 200, expectedDate: futureDate, frequency: "once" },
+  });
+  const dupEdit = await A.call(`/api/income/${dupTarget.data?.item?._id}`, {
+    method: "PATCH",
+    body: { name: "Duplicate Source", amount: 100 },
+  });
+  check(
+    "duplicate detection also applies when editing a record",
+    dupSource.status === 201 && dupTarget.status === 201 && dupEdit.status === 409,
+    dupEdit.data
+  );
+  await A.call(`/api/income/${dupSource.data?.item?._id}`, { method: "DELETE" });
+  await A.call(`/api/income/${dupTarget.data?.item?._id}`, { method: "DELETE" });
+
+  // A once-off record with a payment cannot silently become a repeating schedule.
+  const paidOnce = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "Paid Once", amount: 100, expectedDate: futureDate, frequency: "once" },
+  });
+  const paidOnceId = paidOnce.data?.item?._id;
+  await A.call(`/api/income/${paidOnceId}`, { method: "PATCH", body: { receive: 100, receivedDate: futureDate } });
+  const conversion = await A.call(`/api/income/${paidOnceId}`, { method: "PATCH", body: { frequency: "monthly" } });
+  check(
+    "a paid once-off record cannot be converted to a schedule",
+    conversion.status === 400 && /repeating schedule/i.test(String(conversion.data?.error || "")),
+    conversion.data
+  );
+  await A.call(`/api/income/${paidOnceId}`, { method: "DELETE" });
+
+  // Priority is a bounded integer on both create and edit.
+  const badPriorityCreate = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Bad priority", amount: 100, dueDate: futureDate, priority: 12 },
+  });
+  const badPriorityEdit = await A.call(`/api/expenses/${rentOccurrenceId}`, {
+    method: "PATCH",
+    body: { priority: "abc" },
+  });
+  check(
+    "priority must be an integer from 1 to 9",
+    badPriorityCreate.status === 400 && badPriorityEdit.status === 400,
+    { create: badPriorityCreate.data, edit: badPriorityEdit.data }
+  );
+
+  // A cancelled row must not hide an active row in the same category.
+  const mixedBefore = await A.call("/api/reports");
+  const groceriesBefore = mixedBefore.data?.byCategory?.groceries || { planned: 0, actual: 0 };
+  const activeGroceries = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Audit Groceries Active", amount: 100, dueDate: futureDate, category: "groceries", frequency: "once" },
+  });
+  await A.call(`/api/expenses/${activeGroceries.data?.item?._id}`, {
+    method: "PATCH",
+    body: { pay: 100, paidDate: futureDate },
+  });
+  const cancelledGroceries = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Audit Groceries Cancelled", amount: 50, dueDate: futureDate, category: "groceries", frequency: "once" },
+  });
+  await A.call(`/api/expenses/${cancelledGroceries.data?.item?._id}`, {
+    method: "PATCH",
+    body: { pay: 50, paidDate: futureDate },
+  });
+  await A.call(`/api/expenses/${cancelledGroceries.data?.item?._id}`, { method: "PATCH", body: { status: "cancelled" } });
+  const mixedAfter = await A.call("/api/reports");
+  const groceriesAfter = mixedAfter.data?.byCategory?.groceries || { planned: 0, actual: 0 };
+  check(
+    "mixed cancelled/active category still detects over-budget spend",
+    activeGroceries.status === 201 &&
+      groceriesAfter.planned === groceriesBefore.planned + 10000 &&
+      groceriesAfter.actual === groceriesBefore.actual + 15000 &&
+      (mixedAfter.data?.overCategories || []).some((row) => row.category === "groceries"),
+    { before: groceriesBefore, after: groceriesAfter, over: mixedAfter.data?.overCategories }
+  );
+  await A.call(`/api/expenses/${activeGroceries.data?.item?._id}`, { method: "DELETE" });
+  await A.call(`/api/expenses/${cancelledGroceries.data?.item?._id}`, { method: "DELETE" });
+
+  // Concurrent cycle generation must not create duplicate occurrences.
+  const concurrentBill = await A.call("/api/expenses", {
+    method: "POST",
+    body: { name: "Concurrent Bill", amount: 100, dueDate: futureDate, frequency: "monthly" },
+  });
+  const concurrentPlans = await Promise.all(
+    Array.from({ length: 8 }, () => A.call("/api/plan").then((r) => r.status))
+  );
+  const concurrentList = await A.call("/api/expenses?limit=50");
+  const concurrentRows = (concurrentList.data?.items || []).filter((row) => row.name === "Concurrent Bill");
+  check(
+    "concurrent plan loads generate only one occurrence",
+    concurrentBill.status === 201 &&
+      concurrentPlans.every((status) => status === 200) &&
+      concurrentRows.length === 1,
+    { statuses: concurrentPlans, rows: concurrentRows.map((row) => row._id) }
+  );
+  await A.call(`/api/expenses/${concurrentRows[0]?._id}`, { method: "DELETE" });
+
+  // CSV formula-looking text must be exported as inert text.
+  const formulaIncome = await A.call("/api/income", {
+    method: "POST",
+    body: { name: "=FORMULA(1)", amount: 100, expectedDate: futureDate, frequency: "once" },
+  });
+  const formulaCsv = await A.call("/api/export/csv?type=income", { raw: true });
+  const formulaText = await formulaCsv.text();
+  check(
+    "CSV neutralizes spreadsheet formulas",
+    formulaIncome.status === 201 && formulaText.includes("'=FORMULA(1)") && !formulaText.includes(",=FORMULA(1)"),
+    formulaText.slice(0, 300)
+  );
+  await A.call(`/api/income/${formulaIncome.data?.item?._id}`, { method: "DELETE" });
+
   // ---------- goals / events ----------
   const goal = await A.call("/api/goals", {
     method: "POST",
@@ -710,6 +1035,11 @@ function makeClient(ip = E2E_CLIENT_IP) {
   const events = await A.call("/api/events");
   const ev = (events.data?.items || []).find((x) => x._id === eventId);
   check("event verdict computed", !!ev?.verdict, ev?.verdict);
+  check(
+    "off-cycle event reports an explicit outside-planning-period verdict",
+    ev?.targetDate > (insights.data?.period?.to || "") ? ev.verdict === "outside_planning_period" : true,
+    { targetDate: ev?.targetDate, periodTo: insights.data?.period?.to, verdict: ev?.verdict }
+  );
   const badKind = await A.call("/api/events", { method: "POST", body: { name: "Party", kind: "festival", amount: 100, targetDate: today } });
   check("invalid event kind rejected 400", badKind.status === 400, badKind.data);
   const eventEdit = await A.call(`/api/events/${eventId}`, { method: "PATCH", body: { kind: "purchase", name: "Wedding gift" } });
@@ -728,6 +1058,15 @@ function makeClient(ip = E2E_CLIENT_IP) {
   check("scenario listed", (scenarios.data?.items || []).some((s) => s._id === scenarioId), scenarios.data?.items?.length);
   const replay = await A.call("/api/simulate", { method: "POST", body: { scenarioId } });
   check("scenario replay works", replay.status === 200 && replay.data?.saved === null, replay.data?.saved);
+  const offPeriodSim = await A.call("/api/simulate", {
+    method: "POST",
+    body: { name: "Off cycle", extraName: "Off cycle cost", extraAmount: 100, extraDate: nextCycleDate },
+  });
+  check(
+    "simulator rejects an extra expense outside the selected cycle",
+    offPeriodSim.status === 400 && /planning period/i.test(String(offPeriodSim.data?.error || "")),
+    offPeriodSim.data
+  );
 
   // ---------- survival ----------
   const survivalPut = await A.call("/api/survival", {
@@ -850,6 +1189,39 @@ function makeClient(ip = E2E_CLIENT_IP) {
     aCheckinsAfterB.data?.items?.length === 3 &&
       !(aCheckinsAfterB.data?.items || []).some((row) => row._id === bCheckin.data?.item?._id),
     aCheckinsAfterB.data
+  );
+
+  // ---------- household delete cleanup (fresh user D) ----------
+  check("signup D", (await D.signup("Delete User", dEmail, password)).status === 201, "signup D");
+  check("login D", (await D.login(dEmail, password)) === 200, "login D");
+  const dIncome = await D.call("/api/income", {
+    method: "POST",
+    body: { name: "Deleted Household Income", amount: 100, expectedDate: futureDate, frequency: "once" },
+  });
+  const dCheckin = await D.call("/api/checkins", { method: "POST", body: { spent: 5 } });
+  check(
+    "D has household data before deletion",
+    dIncome.status === 201 && dCheckin.status === 200,
+    { income: dIncome.status, checkin: dCheckin.status }
+  );
+  const dDelete = await D.call("/api/household", { method: "DELETE" });
+  const dAfterDelete = await D.call("/api/household");
+  check(
+    "household delete removes the membership",
+    dDelete.status === 200 && dAfterDelete.status === 403,
+    { delete: dDelete.status, after: dAfterDelete.status }
+  );
+  const dRecreate = await D.call("/api/household", { method: "POST" });
+  const dIncomeAfter = await D.call("/api/income");
+  const dCheckinsAfter = await D.call("/api/checkins");
+  check(
+    "deleted household records do not leak into a new household",
+    dRecreate.status === 201 &&
+      dIncomeAfter.status === 200 &&
+      dIncomeAfter.data?.total === 0 &&
+      dCheckinsAfter.status === 200 &&
+      dCheckinsAfter.data?.items?.length === 0,
+    { recreate: dRecreate.status, incomes: dIncomeAfter.data?.total, checkins: dCheckinsAfter.data?.items?.length }
   );
 
   // ---------- security headers / private pages ----------

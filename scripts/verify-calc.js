@@ -1,10 +1,11 @@
 /**
  * Arithmetic audit of the computed outputs.
  *
- * Seeds one throwaway household with known income, bills, a full payment and a
- * partial payment, then independently recomputes what the API returns:
+ * Seeds one throwaway household with known income, bills, a full payment, a
+ * partial payment, and payments deliberately dated outside the cycle, then
+ * independently recomputes what the API returns from in-period events only:
  * plan totals, every day's running balance, safe-to-spend, runway, health score,
- * agenda window, report figures and the survival budget.
+ * agenda window, report figures and the exact-paisa survival budget.
  *
  *   npm run build && npm start      (terminal 1)
  *   npm run verify                  (terminal 2, MongoDB running)
@@ -74,6 +75,13 @@ function sum(list, fn) {
   return list.reduce((total, item) => total + fn(item), 0);
 }
 
+/** Exact half-up division using BigInt, independent of floating point. */
+function roundRatio(numerator, denominator) {
+  const n = BigInt(numerator);
+  const d = BigInt(denominator);
+  return Number((n * 2n + d) / (d * 2n));
+}
+
 function makeClient() {
   const store = new Map();
   return {
@@ -136,8 +144,9 @@ function makeClient() {
 function buildSeedEvents(incomes, expenses, from, to) {
   const events = [];
   for (const inc of incomes) {
-    if (inc.receivedMinor > 0 && inRange(inc.receivedDate, from, to)) {
-      events.push({ date: inc.receivedDate, type: "income", confirmed: true, amountMinor: inc.receivedMinor, label: inc.name });
+    const receiptDate = inc.receivedDate || inc.expectedDate;
+    if (inc.receivedMinor > 0 && inRange(receiptDate, from, to)) {
+      events.push({ date: receiptDate, type: "income", confirmed: true, amountMinor: inc.receivedMinor, label: inc.name });
     }
     const left = Math.max(0, inc.amountMinor - inc.receivedMinor);
     if (left > 0 && inRange(inc.expectedDate, from, to)) {
@@ -145,8 +154,9 @@ function buildSeedEvents(incomes, expenses, from, to) {
     }
   }
   for (const exp of expenses) {
-    if (exp.paidMinor > 0 && inRange(exp.paidDate, from, to)) {
-      events.push({ date: exp.paidDate, type: "expense", confirmed: true, amountMinor: exp.paidMinor, label: exp.name, essential: !!exp.essential });
+    const paymentDate = exp.paidDate || exp.dueDate;
+    if (exp.paidMinor > 0 && inRange(paymentDate, from, to)) {
+      events.push({ date: paymentDate, type: "expense", confirmed: true, amountMinor: exp.paidMinor, label: exp.name, essential: !!exp.essential });
     }
     const left = Math.max(0, exp.amountMinor - exp.paidMinor);
     if (left > 0 && inRange(exp.dueDate, from, to)) {
@@ -187,7 +197,8 @@ function expectedSafePool(row, confirmedBalance, reserveMinor, endDate, today) {
   const incomeDates = [];
   // Only received money can be "next confirmed income"; expected-only rows never count.
   for (const inc of today.incomes) {
-    if (inc.receivedMinor > 0 && inc.receivedDate && inc.receivedDate > day) incomeDates.push(inc.receivedDate);
+    const receiptDate = inc.receivedDate || inc.expectedDate;
+    if (inc.receivedMinor > 0 && receiptDate && receiptDate > day) incomeDates.push(receiptDate);
   }
   const horizon = incomeDates.sort()[0] || endDate;
   let essentialsAhead = 0;
@@ -265,6 +276,7 @@ function bandFor(score) {
   const d3 = `${monthStart.slice(0, 8)}03`;
   const d4 = `${monthStart.slice(0, 8)}04`;
   const d5 = `${monthStart.slice(0, 8)}05`;
+  const previousCycleDate = addDays(monthStart, -15);
   const futureIncomeDate = addDays(today, 5);
   const futureBillDate = addDays(today, 7);
   const reserveMinor = 2_000_000; // PKR 20,000.00
@@ -311,6 +323,17 @@ function bandFor(score) {
     { name: "Transport", amount: 5_000, dueDate: d5, category: "transport", essential: false },
     { name: "Car service (later)", amount: 2_000, dueDate: futureBillDate, category: "transport", essential: false },
   ];
+  // Both rows are loaded into this cycle because of their planned dates, but
+  // their real cash moved in the previous cycle. Only the planned remainder
+  // may affect this cycle (and these rows are fully paid, so nothing remains).
+  incomeSeeds.push({
+    name: "Off-cycle receipt", amount: 100, expectedDate: d4, category: "other",
+    receive: 100, receivedDate: previousCycleDate,
+  });
+  expenseSeeds.push({
+    name: "Off-cycle payment", amount: 75, dueDate: d5, category: "other", essential: false,
+    pay: 75, paidDate: previousCycleDate,
+  });
 
   const created = { incomes: [], expenses: [] };
   for (const seed of incomeSeeds) {
@@ -336,7 +359,11 @@ function bandFor(score) {
         body: { receive: seed.receive, receivedDate: seed.receivedDate },
       });
       eq(`income payment recorded (${seed.name})`, patched.data?.item?.receivedMinor, seed.receive * 100);
-      eq(`income status after partial payment (${seed.name})`, patched.data?.item?.status, "partial");
+      eq(
+        `income status after payment (${seed.name})`,
+        patched.data?.item?.status,
+        seed.receive === seed.amount ? "received" : "partial"
+      );
     }
     created.incomes.push(item._id);
   }
@@ -389,10 +416,13 @@ function bandFor(score) {
       essential: s.essential !== false,
     }));
 
-  const expectedConfirmed = sum(incomes, (i) => i.receivedMinor);
-  const expectedLeft = sum(incomes, (i) => Math.max(0, i.amountMinor - i.receivedMinor));
-  const expectedSpend = sum(expenses, (e) => e.paidMinor);
-  const expectedUnpaid = sum(expenses, (e) => Math.max(0, e.amountMinor - e.paidMinor));
+  const events = buildSeedEvents(incomes, expenses, monthStart, monthEnd);
+  // Plan totals must be reconstructed from dated events, not from row-level
+  // payment fields; a receipt or bill paid in another cycle has no event here.
+  const expectedConfirmed = sum(events.filter((e) => e.type === "income" && e.confirmed), (e) => e.amountMinor);
+  const expectedLeft = sum(events.filter((e) => e.type === "income" && !e.confirmed), (e) => e.amountMinor);
+  const expectedSpend = sum(events.filter((e) => e.type === "expense" && e.confirmed), (e) => e.amountMinor);
+  const expectedUnpaid = sum(events.filter((e) => e.type === "expense" && !e.confirmed), (e) => e.amountMinor);
   const expectedEnding = startMinor + expectedConfirmed + expectedLeft - expectedSpend - expectedUnpaid;
 
   // 4. Plan API, explicitly bounded to the current cycle.
@@ -427,7 +457,6 @@ function bandFor(score) {
     startMinor + expectedConfirmed - expectedSpend
   );
 
-  const events = buildSeedEvents(incomes, expenses, monthStart, monthEnd);
   const rebuilt = rebuildDaily(events, monthStart, monthEnd, startMinor);
   for (const row of plan.daily) {
     const mine = rebuilt.find((r) => r.date === row.date);
@@ -448,6 +477,14 @@ function bandFor(score) {
     "sum of expense events = paid + unpaid",
     sum(plan.daily.flatMap((d) => d.events.filter((e) => e.type === "expense")), (e) => e.amountMinor),
     expectedSpend + expectedUnpaid
+  );
+  check(
+    "payments dated in a previous cycle produce no in-cycle event",
+    !events.some((e) => e.label === "Off-cycle receipt" || e.label === "Off-cycle payment") &&
+      !plan.daily.some((d) =>
+        (d.events || []).some((e) => e.label === "Off-cycle receipt" || e.label === "Off-cycle payment")
+      ),
+    { expected: [], actual: events.filter((e) => e.label.startsWith("Off-cycle")) }
   );
 
   const day2 = plan.daily.find((d) => d.date === d2);
@@ -582,8 +619,8 @@ function bandFor(score) {
   const survival = survivalPut.data?.result;
   const essentialsMinor = 60_000 * 100;
   eq("survival monthly essentials", survival.monthlyEssentialMinor, essentialsMinor);
-  eq("survival daily essentials", survival.dailyMinor, Math.round(essentialsMinor / dim));
-  eq("survival weekly essentials", survival.weeklyMinor, Math.round((essentialsMinor * 7) / dim));
+  eq("survival daily essentials", survival.dailyMinor, roundRatio(essentialsMinor, dim));
+  eq("survival weekly essentials", survival.weeklyMinor, roundRatio(essentialsMinor * 7, dim));
   eq("survival confirmed income", plan.totals.confirmedIncomeMinor, expectedConfirmed);
   eq("survival remaining after confirmed", survival.remainingAfterConfirmedMinor, expectedConfirmed - essentialsMinor);
   eq("survival remaining after projected", survival.remainingAfterProjectedMinor, expectedConfirmed + expectedLeft - essentialsMinor);

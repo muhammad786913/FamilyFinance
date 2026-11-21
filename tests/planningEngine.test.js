@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { runPlan, applyScenario, eventAffordability } = require("../lib/engine/planningEngine");
 
 const base = {
@@ -332,4 +334,134 @@ test("scenario delay rejects dates outside the supported calendar range", () => 
     () => applyScenario(input, { delayIncomeId: "i", delayDays: Number.MAX_SAFE_INTEGER }),
     /supported date range/
   );
+});
+
+test("a receipt in another cycle is not counted in this cycle's totals", () => {
+  const plan = runPlan({
+    ...base,
+    incomes: [
+      {
+        id: "old",
+        name: "September receipt",
+        amountMinor: 50000,
+        receivedMinor: 50000,
+        receivedDate: "2026-09-20",
+        expectedDate: "2026-10-15",
+        status: "received",
+      },
+    ],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 0);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 0);
+  assert.equal(plan.totals.endingProjectedMinor, base.startingBalanceMinor);
+  assert.deepEqual(plan.daily.flatMap((day) => day.events), []);
+});
+
+test("a partial receipt keeps only the in-cycle projected remainder", () => {
+  const plan = runPlan({
+    ...base,
+    startingBalanceMinor: 0,
+    emergencyReserveMinor: 0,
+    incomes: [
+      {
+        id: "partial",
+        name: "Partly received",
+        amountMinor: 50000,
+        receivedMinor: 20000,
+        receivedDate: "2026-09-20",
+        expectedDate: "2026-10-15",
+        status: "partial",
+      },
+    ],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 0);
+  assert.equal(plan.totals.expectedIncomeLeftMinor, 30000);
+  assert.equal(plan.totals.endingProjectedMinor, 30000);
+  assert.deepEqual(
+    plan.daily.flatMap((day) => day.events).map((event) => [event.date, event.amountMinor, event.confirmed]),
+    [["2026-10-15", 30000, false]]
+  );
+});
+
+test("a payment dated in another cycle is not counted as this cycle's spend", () => {
+  const plan = runPlan({
+    ...base,
+    expenses: [
+      {
+        id: "old-bill",
+        name: "Paid last month",
+        amountMinor: 30000,
+        paidMinor: 30000,
+        paidDate: "2026-09-25",
+        dueDate: "2026-10-10",
+        status: "paid",
+      },
+    ],
+    incomes: [],
+  });
+  assert.equal(plan.totals.actualSpendMinor, 0);
+  assert.equal(plan.totals.unpaidBillsMinor, 0);
+  assert.deepEqual(plan.daily.flatMap((day) => day.events), []);
+});
+
+test("a real receipt without a payment date still counts on its planned date", () => {
+  const plan = runPlan({
+    ...base,
+    startingBalanceMinor: 0,
+    emergencyReserveMinor: 0,
+    incomes: [
+      {
+        id: "legacy",
+        name: "Legacy receipt",
+        amountMinor: 50000,
+        receivedMinor: 50000,
+        receivedDate: null,
+        expectedDate: "2026-10-15",
+        status: "received",
+      },
+    ],
+    expenses: [],
+  });
+  assert.equal(plan.totals.confirmedIncomeMinor, 50000);
+  assert.deepEqual(
+    plan.daily.flatMap((day) => day.events).map((event) => [event.date, event.confirmed]),
+    [["2026-10-15", true]]
+  );
+});
+
+test("safe-to-spend ignores a confirmed income dated after the plan", () => {
+  const common = { ...base, startingBalanceMinor: 100000, emergencyReserveMinor: 0, expenses: [] };
+  const without = runPlan({ ...common, incomes: [] });
+  const withOffPeriod = runPlan({
+    ...common,
+    incomes: [
+      {
+        id: "future",
+        name: "Next month receipt",
+        amountMinor: 50000,
+        receivedMinor: 50000,
+        receivedDate: "2026-11-05",
+        expectedDate: "2026-10-01",
+        status: "received",
+      },
+    ],
+  });
+  assert.equal(withOffPeriod.daily[0].nextConfirmedIncomeDate, null);
+  assert.equal(withOffPeriod.daily[0].suggestedSpanDays, without.daily[0].suggestedSpanDays);
+  assert.equal(withOffPeriod.daily[0].suggestedDiscretionaryMinor, without.daily[0].suggestedDiscretionaryMinor);
+});
+
+test("an event outside the selected period gets an explicit verdict", () => {
+  const result = eventAffordability(
+    { ...base, startingBalanceMinor: 10_000_000, emergencyReserveMinor: 0, incomes: [], expenses: [] },
+    { name: "Wedding", amountMinor: 1000, targetDate: "2026-11-15" }
+  );
+  assert.equal(result.verdict, "outside_planning_period");
+  assert.deepEqual(result.simulated.totals, result.baseline.totals);
+  assert.equal(result.alternatives.length, 3);
+
+  const eventsPage = fs.readFileSync(path.join(__dirname, "../app/(app)/events/page.js"), "utf8");
+  assert.match(eventsPage, /outside_planning_period:\s*"Outside this planning period"/);
 });

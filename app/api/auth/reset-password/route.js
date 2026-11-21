@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { connectDb } from "@/lib/db";
 import User from "@/models/User";
 import PasswordReset from "@/models/PasswordReset";
-import { json, parseJson, handle } from "@/lib/api";
+import { json, parseJson, handle, loginLimitKey } from "@/lib/api";
 import { rateLimit, clientIp, resetLimit } from "@/lib/rateLimit";
 import { passwordProblem } from "@/lib/passwordPolicy";
 
@@ -30,7 +30,11 @@ export async function POST(req) {
       { userId: row.userId, usedAt: null, _id: { $ne: row._id } },
       { $set: { usedAt: new Date() } }
     );
-    resetLimit(`login:${String(body.email || "").trim().toLowerCase()}`);
+    // Clear only the limiter for the owner of the consumed token. The body's
+    // email is untrusted and must never be able to unlock another account.
+    const owner = await User.findById(row.userId).select("email").lean();
+    const ownerKey = loginLimitKey(owner?.email);
+    if (ownerKey) resetLimit(ownerKey);
     return json({ ok: true });
   } catch (err) {
     return handle(err);

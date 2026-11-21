@@ -2,6 +2,7 @@ import { runPlan } from "@/lib/engine/planningEngine";
 import { loadPlanInput, defaultPeriod } from "@/lib/planContext";
 import Household from "@/models/Household";
 import { json, requireSession, requireMembership, handle, ymd } from "@/lib/api";
+import { categoryBreakdown, overBudgetCategories } from "@/lib/reportCategories";
 
 export async function GET(req) {
   try {
@@ -14,23 +15,14 @@ export async function GET(req) {
     const to = url.searchParams.get("to") ? ymd(url.searchParams.get("to")) : fallback.end;
     const category = url.searchParams.get("category");
     const input = await loadPlanInput(membership.householdId, from, to);
-    if (category) input.expenses = input.expenses.filter((e) => e.category === category);
-    const plan = runPlan(input);
-    const byCategory = {};
-    const cancelledCategories = new Set();
-    for (const exp of input.expenses) {
-      // A cancelled bill is no longer planned, but any money already paid is
-      // still real spend and must reconcile with the plan totals.
-      const cancelled = exp.status === "cancelled";
-      const row = byCategory[exp.category] || { planned: 0, actual: 0 };
-      if (cancelled) cancelledCategories.add(exp.category);
-      else row.planned += exp.amountMinor;
-      row.actual += exp.paidMinor || 0;
-      byCategory[exp.category] = row;
-    }
-    const over = Object.entries(byCategory)
-      .filter(([categoryName, v]) => !cancelledCategories.has(categoryName) && v.actual > v.planned)
-      .map(([categoryName, v]) => ({ category: categoryName, ...v, overMinor: v.actual - v.planned }));
+    // loadPlanInput can return a shared cached object. Filtering in place would
+    // poison /api/plan, /api/insights and later unfiltered reports.
+    const reportInput = category
+      ? { ...input, expenses: input.expenses.filter((e) => e.category === category) }
+      : input;
+    const plan = runPlan(reportInput);
+    const byCategory = categoryBreakdown(reportInput.expenses, { start: from, end: to });
+    const over = overBudgetCategories(byCategory);
     return json({
       period: { from, to },
       startingBalanceMinor: plan.startingBalanceMinor,
